@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EEG 运动想象 · 模块分工思维导图</title>
+<style>
+  :root{
+    --bg:#f3f5f9; --card:#fff; --ink:#16202e; --muted:#647084; --line:#e3e8f0;
+    --a:#2563eb; --b:#0f9d58; --c:#d97706; --d:#7c3aed;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,-apple-system,sans-serif;line-height:1.5}
+  .wrap{max-width:1240px;margin:0 auto;padding:32px 24px 64px}
+
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:22px}
+  .eyebrow{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+  h1{font-size:29px;margin:0 0 8px;letter-spacing:-.01em}
+  .sub{margin:0;color:var(--muted);font-size:13px;max-width:760px}
+  .sub b{color:var(--ink)}
+  .legend{display:flex;gap:8px;flex-wrap:wrap}
+  .lg{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11.5px;color:#3c4a5e}
+  .lg i{width:10px;height:10px;border-radius:3px;background:var(--c);display:inline-block}
+
+  section.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 20px 20px;margin-top:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  h2{font-size:17px;margin:0 0 3px}
+  .hint{color:var(--muted);font-size:11.5px;margin:0 0 12px}
+
+  /* ---------- 思维导图 ---------- */
+  .mapwrap{overflow:auto;border-radius:12px;background:linear-gradient(180deg,#fbfcfe,#f7f9fc)}
+  svg{display:block;margin:0 auto;font-family:inherit}
+  .edge{fill:none;stroke:#c6d2e2;stroke-width:1.5}
+  .edge.main{stroke-width:2.4;stroke:#b6c4d8}
+  .bandrect{fill:#f8fafc;stroke:#dfe6ef}
+  .bandname{font-size:12px;font-weight:700;fill:#26344a}
+  .bandnote{font-size:9.5px;fill:#7b8798}
+  .mcard{fill:#fff;stroke:#e1e7f0}
+  .mname{font-size:13px;font-weight:700;fill:#1c2839}
+  .mcount{font-size:10px;fill:#8a95a6}
+  .mmeta{font-size:10px;fill:#667085}
+  .badge{font-size:9.5px;font-weight:700;fill:#fff}
+  .rootrect{fill:#111827}
+  .roottitle{font-size:14px;font-weight:700;fill:#fff}
+  .rootsub{font-size:9.5px;fill:#c7d2e0}
+  .module{transition:opacity .18s}
+  .module:hover .mcard{stroke:#94a8c4}
+  .module:hover{filter:drop-shadow(0 2px 4px rgba(16,24,40,.10))}
+  body[data-focus="A"] .module:not(.m-A),
+  body[data-focus="B"] .module:not(.m-B),
+  body[data-focus="C"] .module:not(.m-C),
+  body[data-focus="D"] .module:not(.m-D){opacity:.14}
+
+  /* ---------- 四个人的模块版图 ---------- */
+  .people{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .person{display:flex;flex-direction:column;border:1px solid var(--line);border-top:4px solid var(--c);border-radius:12px;padding:12px 13px;background:#fcfdff;cursor:pointer;transition:box-shadow .15s,background .15s}
+  .person:hover{box-shadow:0 3px 10px rgba(16,24,40,.07)}
+  .person.active{background:#fff;box-shadow:0 0 0 2px rgba(120,140,170,.35)}
+  .phead{display:flex;gap:9px;align-items:flex-start;margin-bottom:9px}
+  .pkey{width:26px;height:26px;border-radius:8px;background:var(--c);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .phead b{font-size:13px;display:block;line-height:1.3}
+  .phead small{font-size:10.5px;color:var(--muted)}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{display:inline-flex;align-items:center;gap:4px;border-radius:7px;padding:2px 7px;font-size:11px;border:1px solid transparent;white-space:nowrap}
+  .chip .n{opacity:.62;font-size:10px}
+  .chip.o{background:var(--c);color:#fff}
+  .chip.e{background:var(--tint);color:var(--deep);border-color:var(--soft)}
+  .chip.r{background:#fff;color:var(--deep);border-style:dashed;border-color:var(--soft)}
+  .p-A{--tint:#e8f0ff;--deep:#1d4ed8;--soft:#c9dcff}
+  .p-B{--tint:#e6f6ee;--deep:#0b7a44;--soft:#c3ead5}
+  .p-C{--tint:#fff3df;--deep:#a35a00;--soft:#f6dcae}
+  .p-D{--tint:#f1eafe;--deep:#6b21c8;--soft:#dcccfb}
+  .pfoot{margin-top:auto;padding-top:8px;font-size:9.5px;color:var(--muted)}
+
+  /* ---------- 边界 ---------- */
+  .rules{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0}
+  .rules div{font-size:11.5px;color:#3c4a5e;background:#f8fafc;border-left:3px solid #c7d3e5;border-radius:0 8px 8px 0;padding:8px 11px}
+  .rules b{color:var(--ink);display:block;margin-bottom:1px;font-size:12px}
+
+  footer{margin-top:22px;color:var(--muted);font-size:11px;line-height:1.7}
+
+  @media (max-width:1000px){
+    .people{grid-template-columns:repeat(2,1fr)}
+    .rules{grid-template-columns:1fr}
+  }
+  @media print{
+    body{background:#fff}
+    section.card{box-shadow:none;break-inside:avoid}
+  }
+</style>
+</head>
+<body data-focus="">
+<div class="wrap">
+
+  <header>
+    <div>
+      <p class="eyebrow">Mind map · bci-motor-imagery @ d10ce05</p>
+      <h1>模块分工思维导图</h1>
+      <p class="sub">把 <b>85 个文件</b>收敛成 <b>16 个模块</b>、<b>4 条主线</b>，再落到 <b>4 个人</b>。
+        颜色＝主责人，卡片第二行＝目录与代表文件；点击下方成员卡，可高亮他接触的模块。</p>
+    </div>
+    <div class="legend">
+      <span class="lg" style="--c:var(--a)"><i></i>A 输入与集成</span>
+      <span class="lg" style="--c:var(--b)"><i></i>B 数据与算法</span>
+      <span class="lg" style="--c:var(--c)"><i></i>C 桌面交互</span>
+      <span class="lg" style="--c:var(--d)"><i></i>D 输出与评估</span>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>1　文件树思维导图</h2>
+    <p class="hint">根节点 → 四条主线 → 16 个模块；模块卡片标出主责人与代表文件，完整文件列表见悬停提示。</p>
+    <div class="mapwrap" id="map"></div>
+  </section>
+
+  <section class="card">
+    <h2>2　每个人负责的模块</h2>
+    <p class="hint">实心＝主责，浅色＝参与，虚线＝复核；未出现的模块为只读依赖。点击成员卡可高亮上方对应模块。</p>
+    <div class="people" id="people"></div>
+  </section>
+
+  <section class="card">
+    <h2>3　协作边界</h2>
+    <div class="rules">
+      <div><b>契约只由 A 合入</b>改 contracts/ 前先通知 B/C/D，样例与文档同步更新。</div>
+      <div><b>指标只在 D 处计算</b>evaluation/metrics.py 是唯一实现，training/evaluate.py 只调用。</div>
+      <div><b>界面不改写结果</b>C 只渲染 DecisionFrame，动画不得由参考标签触发。</div>
+      <div><b>在线路径不见标签</b>B 的训练/评估可读参考轨，A 的 sources/runtime 不得触碰。</div>
+    </div>
+  </section>
+
+  <footer>
+    读图方式：先看四条主线（基座 / 在线 / 离线 / 交付），再沿曲线进入模块，颜色落到具体负责人。<br>
+    模块文件目前均为 0 字节占位，归属依据 docs/03 分工方案与目录职责；A/B/C/D 为岗位代号，姓名确定后替换。
+  </footer>
+</div>
+
+<script>
+const COLORS = {A:'#2563eb', B:'#0f9d58', C:'#d97706', D:'#7c3aed'};
+
+const BANDS = [
+  {name:'基座', note:'全员共享契约', modules:[
+    {name:'契约层', path:'src/eeg_core/contracts/', owner:'A',
+      people:{A:'o',B:'e',C:'d',D:'r'},
+      files:['frames.py','events.py','config.py','protocols.py','__init__.py']}
+  ]},
+  {name:'在线链路', note:'样本到决策', modules:[
+    {name:'数据源', path:'src/eeg_app/sources/', owner:'A',
+      people:{A:'o',B:'e',C:'d',D:'d'},
+      files:['input.py','replay.py','__init__.py']},
+    {name:'运行时', path:'src/eeg_app/runtime/', owner:'A',
+      people:{A:'o',C:'e',D:'d'},
+      files:['session.py','buffers.py','queue_worker.py','__init__.py']},
+    {name:'处理', path:'src/eeg_core/processing/', owner:'B',
+      people:{A:'e',B:'o',C:'d',D:'r'},
+      files:['windows.py','filters.py','quality.py','features.py','__init__.py']},
+    {name:'解码', path:'src/eeg_core/decoding/', owner:'B',
+      people:{A:'e',B:'o',C:'d',D:'r'},
+      files:['decision.py','inference.py','models.py','__init__.py']},
+    {name:'界面', path:'src/eeg_app/ui/', owner:'C',
+      people:{A:'e',B:'d',C:'o',D:'e'},
+      files:['main_window.py','waveform.py','timeline.py','stick_figure.py','state_text.py','__init__.py']},
+    {name:'输出', path:'src/eeg_app/outputs/', owner:'D',
+      people:{A:'e',B:'d',C:'d',D:'o'},
+      files:['archive.py','sinks.py','__init__.py']}
+  ]},
+  {name:'离线与验证', note:'训练与评估', modules:[
+    {name:'训练', path:'training/', owner:'B',
+      people:{A:'d',B:'o',D:'e'},
+      files:['train.py','dataset.py','evaluate.py','checkpoints/','__init__.py']},
+    {name:'评估', path:'evaluation/', owner:'D',
+      people:{A:'r',B:'e',D:'o'},
+      files:['events.py','metrics.py','report.py','__init__.py']},
+    {name:'示例与数据', path:'examples/ · data/', owner:'B',
+      people:{A:'e',B:'o',D:'d'},
+      files:['synthetic_eeg.py','README.md','tiny_replay/','data/README.md','tests/data/tiny_replay/']}
+  ]},
+  {name:'工程与交付', note:'集成、测试与打包', modules:[
+    {name:'应用外壳', path:'src/eeg_app/', owner:'A',
+      people:{A:'o',C:'e',D:'e'},
+      files:['app.py','__main__.py','__init__.py']},
+    {name:'测试', path:'tests/', owner:'A',
+      people:{A:'o',B:'e',D:'e'},
+      files:['conftest.py','test_contracts.py','test_windows.py','test_filters.py','test_quality.py','test_decision.py','test_buffers.py','test_queue_worker.py','test_metrics.py','test_replay.py','test_sinks.py','__init__.py']},
+    {name:'工程配置', path:'仓库根目录', owner:'A',
+      people:{A:'o',B:'d',C:'d',D:'e'},
+      files:['pyproject.toml','requirements.txt','requirements-lock.txt','.pre-commit-config.yaml','.gitignore','.gitattributes','LICENSE','README.md']},
+    {name:'脚本与 CI', path:'scripts/ · .github/', owner:'A',
+      people:{A:'o',C:'d',D:'e'},
+      files:['check_env.py','export_lock.py','run_demo.ps1','run_demo.sh','ci.yml','package.yml']},
+    {name:'打包', path:'packaging/', owner:'D',
+      people:{A:'r',C:'d',D:'o'},
+      files:['eeg_app.spec','build.ps1','build.sh']},
+    {name:'文档', path:'docs/', owner:'A',
+      people:{A:'o',B:'e',C:'e',D:'e'},
+      files:['README.md','00_架构总览.md','01_接口约定_1.0.md','02_数据与标签说明.md','03_评价口径与指标.md','04_运行与打包.md','05_变更记录.md','07_已知限制.md','project/06_周计划与分工.md']}
+  ]}
+];
+
+/* ---------- 尺寸 ---------- */
+const W = 1080, TOP = 24;
+const ROOT = {x:24, w:190, h:66};
+const BAND = {x:260, w:170, h:50};
+const CARD = {x:470, w:590, h:56, gap:10};
+const BAND_GAP = 42;
+
+let y = TOP;
+BANDS.forEach(band => {
+  const n = band.modules.length;
+  band.h = n * CARD.h + (n - 1) * CARD.gap;
+  band.y = y;
+  band.modules.forEach((m, i) => { m.y = y + i * (CARD.h + CARD.gap); });
+  y += band.h + BAND_GAP;
+});
+const H = y - BAND_GAP + TOP;
+const rootY = Math.round(H / 2);
+
+/* 估算文字宽度，截断第二行，避免 SVG 文本溢出卡片 */
+function textWidth(s, size){
+  let w = 0;
+  for (const ch of s) w += /[\u4e00-\u9fff]/.test(ch) ? size : size * 0.54;
+  return w;
+}
+function metaLine(path, files, max){
+  const short = files.map(f => f.split('/').pop().replace('.py',''));
+  const head = path.endsWith('/') ? path : path + '/';
+  const shown = [];
+  for (const name of short){
+    const next = [...shown, name].join(' · ');
+    if (textWidth(head + '  ' + next + '…', 10) > max) break;
+    shown.push(name);
+  }
+  let line = head + '  ' + shown.join(' · ');
+  if (shown.length < short.length) line += ' · +' + (short.length - shown.length);
+  return line;
+}
+
+/* ---------- 生成 SVG ---------- */
+let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="文件树思维导图">`;
+
+BANDS.forEach(band => {
+  const by = band.y + band.h / 2;
+  s += `<path class="edge main" d="M ${ROOT.x + ROOT.w} ${rootY} C ${ROOT.x + ROOT.w + 34} ${rootY}, ${BAND.x - 34} ${by}, ${BAND.x} ${by}"/>`;
+  band.modules.forEach(m => {
+    const cy = m.y + CARD.h / 2;
+    s += `<path class="edge" d="M ${BAND.x + BAND.w} ${by} C ${BAND.x + BAND.w + 30} ${by}, ${CARD.x - 30} ${cy}, ${CARD.x} ${cy}"/>`;
+  });
+});
+
+BANDS.forEach(band => {
+  const cy = band.y + band.h / 2;
+  s += `<g class="band">`;
+  s += `<rect class="bandrect" x="${BAND.x}" y="${cy - BAND.h/2}" width="${BAND.w}" height="${BAND.h}" rx="12"/>`;
+  s += `<text class="bandname" x="${BAND.x + 14}" y="${cy - 3}">${band.name}</text>`;
+  s += `<text class="bandnote" x="${BAND.x + 14}" y="${cy + 12}">${band.note} · ${band.modules.length} 模块</text>`;
+  s += `</g>`;
+
+  band.modules.forEach(m => {
+    const peopleClass = Object.keys(m.people).filter(k => m.people[k] !== 'd').map(k => 'm-' + k).join(' ');
+    const tip = m.files.join('  ·  ');
+    s += `<g class="module ${peopleClass}" data-key="${m.name}">`;
+    s += `<title>${m.name}（${m.path}）\n${tip}</title>`;
+    s += `<rect class="mcard" x="${CARD.x}" y="${m.y}" width="${CARD.w}" height="${CARD.h}" rx="10"/>`;
+    s += `<rect x="${CARD.x}" y="${m.y}" width="4" height="${CARD.h}" rx="2" fill="${COLORS[m.owner]}"/>`;
+    s += `<circle cx="${CARD.x + 24}" cy="${m.y + 21}" r="9" fill="${COLORS[m.owner]}"/>`;
+    s += `<text class="badge" x="${CARD.x + 24}" y="${m.y + 24.4}" text-anchor="middle">${m.owner}</text>`;
+    s += `<text class="mname" x="${CARD.x + 40}" y="${m.y + 25}">${m.name}</text>`;
+    s += `<text class="mcount" x="${CARD.x + CARD.w - 14}" y="${m.y + 24}" text-anchor="end">${m.files.length} 个文件</text>`;
+    s += `<text class="mmeta" x="${CARD.x + 16}" y="${m.y + 45}">${metaLine(m.path, m.files, CARD.w - 34)}</text>`;
+    s += `</g>`;
+  });
+});
+
+s += `<g class="root">`;
+s += `<rect class="rootrect" x="${ROOT.x}" y="${rootY - ROOT.h/2}" width="${ROOT.w}" height="${ROOT.h}" rx="14"/>`;
+s += `<text class="roottitle" x="${ROOT.x + 18}" y="${rootY - 3}">EEG 运动想象</text>`;
+s += `<text class="rootsub" x="${ROOT.x + 18}" y="${rootY + 16}">85 文件 · 16 模块 · 4 人</text>`;
+s += `</g></svg>`;
+
+document.getElementById('map').innerHTML = s;
+
+/* ---------- 每人负责的模块 ---------- */
+const MEMBERS = [
+  {k:'A', role:'项目协调 · 输入集成', cls:'p-A', color:'var(--a)'},
+  {k:'B', role:'数据与连续解码',     cls:'p-B', color:'var(--b)'},
+  {k:'C', role:'桌面界面与反馈',     cls:'p-C', color:'var(--c)'},
+  {k:'D', role:'输出与评估发布',     cls:'p-D', color:'var(--d)'}
+];
+const ROLE_ORDER = {o:0, e:1, r:2};
+const ROLE_NAME = {o:'主责', e:'参与', r:'复核'};
+
+const allModules = BANDS.flatMap(b => b.modules);
+
+document.getElementById('people').innerHTML = MEMBERS.map(mem => {
+  const items = allModules
+    .filter(m => m.people[mem.k] && m.people[mem.k] !== 'd')
+    .sort((x, y2) => ROLE_ORDER[x.people[mem.k]] - ROLE_ORDER[y2.people[mem.k]]);
+  const count = r => items.filter(m => m.people[mem.k] === r).length;
+  const chips = items.map(m => {
+    const role = m.people[mem.k];
+    return `<span class="chip ${role}" title="${ROLE_NAME[role]} · ${m.files.length} 个文件"><span>${m.name}</span><span class="n">${m.files.length}</span></span>`;
+  }).join('');
+  return `<div class="person ${mem.cls}" data-m="${mem.k}" style="--c:${mem.color}">
+    <div class="phead">
+      <span class="pkey">${mem.k}</span>
+      <div><b>${mem.role}</b><small>主责 ${count('o')} · 参与 ${count('e')} · 复核 ${count('r')} 个模块</small></div>
+    </div>
+    <div class="chips">${chips}</div>
+    <div class="pfoot">点击高亮上方模块；再次点击取消。</div>
+  </div>`;
+}).join('');
+
+/* ---------- 交互 ---------- */
+document.querySelectorAll('.person').forEach(card => {
+  card.addEventListener('click', () => {
+    const m = card.dataset.m;
+    const cur = document.body.dataset.focus;
+    document.body.dataset.focus = cur === m ? '' : m;
+    document.querySelectorAll('.person').forEach(p => p.classList.toggle('active', p.dataset.m === document.body.dataset.focus));
+  });
+});
+</script>
+</body>
+</html>
