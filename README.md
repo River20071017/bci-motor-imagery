@@ -296,12 +296,14 @@ session_<会话编号>/
 
 ## 10. 团队分工
 
-| 代号 | 角色 | 主责模块 |
-| --- | --- | --- |
-| A | 项目协调 · 输入集成 | `contracts/`、`sources/`、`runtime/`、`app.py`、测试与工程配置、CI |
-| B | 数据与连续解码 | `processing/`、`decoding/`、`training/`、模型包 |
-| C | 桌面界面与反馈 | `ui/`（窗口、波形、时间轴、火柴人、状态文案） |
-| D | 输出与评估发布 | `outputs/`、`evaluation/`、`packaging/`、评估报告与离线包 |
+四名成员与岗位代号对应如下（A/B/C/D 为分工方案中的固定代号）：
+
+| 成员 | 代号 | 角色 | 主责模块 |
+| --- | --- | --- | --- |
+| 张成恺 | A | 项目协调 · 输入集成 | `contracts/`、`sources/`、`runtime/`、`app.py`、测试与工程配置、CI |
+| 杨子江 | B | 数据与连续解码 | `processing/`、`decoding/`、`training/`、模型包 |
+| 王斯正 | C | 桌面界面与反馈 | `ui/`（窗口、波形、时间轴、火柴人、状态文案） |
+| 宋筱潇 | D | 输出与评估发布 | `outputs/`、`evaluation/`、`packaging/`、评估报告与离线包 |
 
 四条硬边界：
 
