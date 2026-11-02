@@ -33,3 +33,11 @@ _repo_before/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# ---- 测试与构建缓存 ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
