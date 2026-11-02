@@ -1,15 +1,22 @@
-"""契约 1.0：模块之间唯一的接缝定义。
+"""契约 1.0：全项目的数据盒子与唯一接口。
 
-本包只放数据结构与协议：不读文件、不 import mne / PySide6，也不含业务判断。字段或语义
-变化必须先升级 :data:`CONTRACT_VERSION`，同步 ``docs/01_接口约定_1.0.md`` 与样例，再分别
-改双方模块（README「开发规范」）。
+五个模块，各管一件事，互不抢活：
 
-当前落地的是输入侧与中间层契约：``EEGChunk``（六组信息：身份、时间、形状、物理属性、
-通道、流级事件）、``WindowRange``（观察窗网格）、``QualityReport``（质量结论）、
-``SourceInfo`` / ``DataSource``、``ChunkStreamGuard``、``ResetReason`` /
-``StreamConsumer``（重置语义）、参考轨专用的 ``ReferenceMarker`` / ``MarkerSource``，
-以及全局参数唯一的出处 ``AppConfig``。
-``DecisionFrame``、会话状态与动作事件按同一版本号在后续提交中补齐。
+=========================  ==========================================
+``frames.py``              输入侧数据：``EEGChunk`` / ``WindowRange`` / ``SourceInfo``
+``outputs.py``             输出侧数据：``QualityReport`` / ``Scores`` / ``DecisionFrame`` 等
+``events.py``              事件：``ReferenceMarker``（参考标注）、``ResetReason``（重置原因）
+``protocols.py``           唯一的接口：``DataValidator`` + 实现 ``ChunkStreamGuard``
+``config.py``              全局参数唯一出处：``AppConfig`` + ``DEFAULT_CONFIG``
+=========================  ==========================================
+
+三条纪律（改代码前先读）：
+
+1. 不提前抽象：``protocols.py`` 只有一个校验器接口，没有数据源/解码器/存档插座。
+2. 锁死数据：所有盒子都是 ``frozen`` dataclass，流水线中途改不了。
+3. 文档贴脸放：字段表在 ``docs/01_接口约定_1.0.md``，代码按表格写，两边一起改。
+
+跨模块唯一需要记住的异常是 :class:`ContractError`：数据不合规都抛它。
 """
 
 from .config import (
@@ -23,32 +30,25 @@ from .config import (
     RuntimeConfig,
     SourceConfig,
 )
-from .events import ReferenceMarker
+from .events import ReferenceMarker, ResetReason
 from .frames import (
     CONTRACT_VERSION,
     EEG_UNIT,
+    ContractError,
+    EEGChunk,
+    IncompatibleSourceError,
+    SourceInfo,
+    WindowRange,
+)
+from .outputs import (
     QUALITY_REASONS,
     DecisionFrame,
     DecisionState,
-    EEGChunk,
-    EEGChunkError,
     QualityReport,
     Scores,
-    WindowRange,
     utc_now_iso,
 )
-from .protocols import (
-    ChunkSequenceError,
-    ChunkStreamGuard,
-    DataSource,
-    IncompatibleSourceError,
-    MarkerSource,
-    ResetReason,
-    SourceClosedError,
-    SourceError,
-    SourceInfo,
-    StreamConsumer,
-)
+from .protocols import ChunkSequenceError, ChunkStreamGuard, DataValidator
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -58,16 +58,15 @@ __all__ = [
     "ChunkSequenceError",
     "ChunkStreamGuard",
     "ConfigError",
-    "DataSource",
+    "ContractError",
+    "DataValidator",
     "DecisionConfig",
     "DecisionFrame",
     "DecisionState",
     "DisplayConfig",
     "EEGChunk",
-    "EEGChunkError",
     "EEG_UNIT",
     "IncompatibleSourceError",
-    "MarkerSource",
     "ProcessingConfig",
     "QUALITY_REASONS",
     "QualityReport",
@@ -75,11 +74,8 @@ __all__ = [
     "ResetReason",
     "RuntimeConfig",
     "Scores",
-    "SourceClosedError",
     "SourceConfig",
-    "SourceError",
     "SourceInfo",
-    "StreamConsumer",
     "WindowRange",
     "utc_now_iso",
 ]
