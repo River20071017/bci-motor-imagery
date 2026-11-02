@@ -33,8 +33,9 @@ from PySide6.QtCore import QTimer
 
 import numpy as np
 
-from eeg_core.contracts import DecisionState, EEGChunk
+from eeg_core.contracts import DecisionState, EEGChunk, SourceInfo
 from eeg_app.ui.main_window import MainWindow
+from eeg_app.ui.intake import check_source_contract
 from mock_source import MockEegSource, DEFAULT_CHANNELS
 from mock_decoder import MockDecoder
 
@@ -188,13 +189,63 @@ def main() -> int:
     print(f"  停止后反馈关闭    : {'OK' if win.stickman._feedback is False else 'FAIL'}")
     print(f"  状态样本(前8)     : {[str(s) for s in stats['states'][:8]]}")
 
+    # ---- item 2 接入校验（不弹真实对话框，仅验证逻辑）----
+    intake_problems = intake_check()
+    if intake_problems:
+        print("==== 接入校验检查 ====")
+        for p in intake_problems:
+            print(f"  - {p}")
+
     if cov_problems:
         problems.extend(cov_problems)
+    if intake_problems:
+        problems.extend(intake_problems)
     if problems:
         print("\n!! 失败项:")
         for p in problems:
             print(f"  - {p}")
         return 1
+    print("\n✅ 全部通过")
+    return 0
+
+
+class _BrokenChunkSource:
+    """测试用：底层返回了非 EEGChunk 的裸数组，模拟"格式错误"路径。"""
+
+    info = SourceInfo(
+        source_id="BAD",
+        recording_id="X",
+        sample_rate_hz=160.0,
+        channel_names=tuple(DEFAULT_CHANNELS),
+        reference=None,
+        subject_id=None,
+        run=None,
+        n_samples=None,
+    )
+
+    def read_chunk(self):
+        return np.zeros(8, dtype=np.float64)  # 1D 裸数组，不是 EEGChunk
+
+    def __enter__(self) -> "_BrokenChunkSource":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+def intake_check() -> list[str]:
+    """同步校验 item 2 的接入判定逻辑（不弹真实对话框，只验证 check_source_contract）。"""
+    problems: list[str] = []
+    good = check_source_contract(MockEegSource())
+    if not good.ok:
+        problems.append(f"正常源被判为格式错误: {good.message}")
+    bad = check_source_contract(_BrokenChunkSource())
+    if bad.ok:
+        problems.append("item 2 失效：类型/形状错误的源未被判为格式错误（报错框不会弹）")
+    return problems
     print("\n✅ 全部通过")
     return 0
 

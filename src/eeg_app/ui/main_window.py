@@ -22,10 +22,12 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QLineEdit, QFileDialog, QSplitter, QFrame, QCheckBox,
+    QMessageBox,
 )
 
 from eeg_core.contracts import DEFAULT_CONFIG, MODEL_CHANNELS, DecisionState
 from eeg_app.ui.playback import PlaybackWorker, DecoderProtocol, SourceProtocol
+from eeg_app.ui.intake import check_source_contract
 from eeg_app.ui.waveform import WaveformWidget
 from eeg_app.ui.timeline import TimelineWidget
 from eeg_app.ui.stick_figure import StickmanWidget
@@ -99,6 +101,13 @@ class MainWindow(QMainWindow):
         top.addWidget(QLabel("输出目录"))
         top.addWidget(self.out_edit)
         top.addWidget(out_btn)
+        self.check_fmt_btn = QPushButton("接入并校验数据")
+        self.check_fmt_btn.setToolTip(
+            "按团队固定输入格式（EEGChunk 契约）校验当前数据源；\n"
+            "格式错误弹报错框，正确弹确认框（item 2）。"
+        )
+        self.check_fmt_btn.clicked.connect(self._on_check_format)
+        top.addWidget(self.check_fmt_btn)
         root.addLayout(top)
 
         # 主体：波形 + 右栏
@@ -172,6 +181,26 @@ class MainWindow(QMainWindow):
         d = QFileDialog.getExistingDirectory(self, "选择输出目录", self.out_edit.text())
         if d:
             self.out_edit.setText(d)
+
+    def _on_check_format(self) -> None:
+        """item 2：应用层按固定输入格式校验数据源，并弹确认/报错对话框。
+
+        校验逻辑在 :func:`eeg_app.ui.intake.check_source_contract`（纯函数、可单测）；
+        本方法只负责把结果翻译成对话框。
+        """
+        res = check_source_contract(self.source)
+        if res.ok:
+            QMessageBox.information(
+                self, "数据格式确认",
+                f"✅ 数据格式正确，已接入。\n\n{res.message}",
+            )
+            self.statusBar().showMessage("数据格式已确认 · 可开始分析")
+        else:
+            QMessageBox.critical(
+                self, "数据格式错误",
+                f"❌ 无法接入数据。\n\n{res.message}",
+            )
+            self.statusBar().showMessage("数据格式错误，未接入")
 
     def _on_start(self) -> None:
         if self.worker and self._running:
