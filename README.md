@@ -200,7 +200,7 @@ bci-motor-imagery/
 | PySide6 | 6.12.0 | Qt 桌面界面 |
 | pyqtgraph | 0.14.0 | 波形与时间轴绘图 |
 | PyInstaller | 6.22.3 | 离线打包（仅发布时需要） |
-| pytest / ruff | 开发依赖，版本待锁 | 测试与静态检查 |
+| pytest / ruff | `pyproject.toml` 里只设下限（pytest≥8、ruff≥0.6），未锁 | 测试与静态检查 |
 
 ### 6.2 安装与启动
 
@@ -219,7 +219,7 @@ py -3.13 -m venv .venv
 eeg-app
 ```
 
-> 以上命令对应目标形态：`pyproject.toml`、`requirements.txt`、`scripts/check_env.py` 与 `eeg_app` 目前都是占位，需先补齐依赖、`[project.scripts]` 入口与模块实现。
+> `pyproject.toml` 与 `requirements.txt` 已填，`pip install -e ".[dev]"` 可用；`scripts/check_env.py`、`[project.scripts]` 的 `eeg-app` 入口与 `eeg_app` 模块仍待实现，启动命令在 `app.py` 完成前会失败。此刻验证代码可直接运行 `python tests\integration\test_replay.py`（无需安装）。
 
 ### 6.3 测试与检查
 
