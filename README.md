@@ -8,9 +8,12 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 > 契约 1.0 的**输入侧、输出侧与配置**已经写完：`EEGChunk`、`WindowRange`、`SourceInfo`、
 > `QualityReport`、`DecisionFrame`、`ChunkStreamGuard`、`AppConfig` 等共 27 个导出，分成
 > `frames / outputs / events / protocols / config` 五个文件，见 [docs/01](docs/01_接口约定_1.0.md)。
-> **其余模块仍全部是 0 字节占位**（sources、runtime、processing、decoding、ui、outputs、training、
-> evaluation、packaging），`pyproject.toml`、CI 与依赖清单尚未填写，**应用还不能运行**。
-> 已完成的契约、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
+> **数据源已实现**：`sources/input.py`（EDF → 内存数组、通道名规范化、标注隔离）与
+> `sources/replay.py`（1 倍速分块、暂停/继续/停止），11 条集成用例见
+> `tests/integration/test_replay.py`。
+> **其余模块仍是 0 字节占位**（runtime、decoding、ui、outputs、training、evaluation、packaging）；
+> `processing/` 目前只有归属说明：质量与因果滤波由 A 实现、分窗与特征由 B 实现，两者都还没写。
+> **应用还不能运行**；已完成的契约、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
 
 ---
 
@@ -55,15 +58,16 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | --- | --- | --- |
 | 目录与模块边界 | ✅ 完成 | `src/eeg_core` + `src/eeg_app` 分层，`contracts` 独立成包 |
 | 接口契约 1.0 | 🟡 输入侧与输出侧完成 | 27 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`IntentEvent`、会话状态未完成，`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
-| 契约测试与其余文档 | ⬜ 未开始 | `tests/unit/core/test_contracts.py` 与 docs 00、02–04、06、07 仍是空占位 |
-| 数据读取与回放 | ⬜ 未开始 | `sources/`、`runtime/` 为空占位 |
-| 处理与解码 | ⬜ 未开始 | `processing/`、`decoding/` 为空占位 |
+| 契约测试与其余文档 | 🟡 部分完成 | 回放集成用例 11 条已入库；`tests/unit/core/test_contracts.py` 与 docs 00、02–04、06、07 仍是空占位 |
+| 数据读取与回放 | 🟡 部分完成 | `sources/` 已实现 EDF 读取与 1 倍速回放（含暂停/继续/停止）；`runtime/` 为空占位 |
+| 处理与解码 | ⬜ 未开始 | `processing/` 只有归属说明（质量+滤波 A／分窗+特征 B），`decoding/` 为空占位 |
 | 界面 | ⬜ 未开始 | `ui/` 为空占位 |
 | 存档与评估 | ⬜ 未开始 | `outputs/`、`evaluation/` 为空占位 |
 | 打包与发布 | ⬜ 未开始 | `packaging/` 为空占位 |
-| 工程配置 | ⬜ 空占位 | `pyproject.toml`、CI、`requirements*.txt` 尚未填写 |
+| 工程配置 | 🟡 基本可用 | `pyproject.toml` 与 `requirements.txt` 已填（pytest 已设 `pythonpath=src`）；CI 待补 |
 
-> 在 `pyproject.toml` 与模块实现补齐前，下文的安装、启动、测试命令**不会成功**；它们描述的是目标用法。
+> 应用入口 `app.py` 与 `runtime/`、`decoding/`、`ui/` 仍是空占位，启动命令会失败；测试可直接运行
+> `python tests\integration\test_replay.py`（或装了 pytest 后 `python -m pytest`）。
 
 ## 3. 功能范围（P0）
 
@@ -73,7 +77,7 @@ P0 共 11 项功能，全部完成后才进入验收；P1（网络流、LSL、�
 | --- | --- | --- | --- |
 | F01 | 读取受支持 EDF+，规范通道名/单位，校验采样率、通道、参考策略与模型元数据；不兼容时阻止运行 | A | T02 |
 | F02 | 1 倍速连续供数；开始、暂停、继续、停止、文件结束；状态与样本编号一致 | A | T03、T06、T11 |
-| F03 | 质量检查、因果滤波、状态保持、异常后清理与预热；不得使用未来样本 | B | T04、T05、T07 |
+| F03 | 质量检查、因果滤波、状态保持、异常后清理与预热；不得使用未来样本 | A | T04、T05、T07 |
 | F04 | 连续分窗提取特征，调用个人模型输出三状态分数 | B | T03、T10 |
 | F05 | 依据质量、门限与时间一致性产生决策；区分空闲/不确定/异常；处理结果过期 | B | T06、T07、T10 |
 | F06 | 持续显示带单位的波形，可切换通道与幅度；绘图不阻塞解码 | C | T08、T11 |
@@ -102,7 +106,7 @@ P0 共 11 项功能，全部完成后才进入验收；P1（网络流、LSL、�
 
 - **`src/eeg_core`**：纯核心库，不依赖 UI、运行时与 IO 框架，可在测试与训练脚本中单独使用。
   - `contracts/`：数据帧、事件、配置、协议（A 维护，全员复核）
-  - `processing/`：质量、因果滤波、分窗、特征（B）
+  - `processing/`：质量与因果滤波（A）；分窗与特征（B）
   - `decoding/`：模型结构、加载推理、决策（B）
 - **`src/eeg_app`**：应用层，负责把核心库接成可运行程序。
   - `sources/`、`runtime/`：数据源、会话、缓冲、队列（A）
@@ -117,7 +121,7 @@ P0 共 11 项功能，全部完成后才进入验收；P1（网络流、LSL、�
 flowchart LR
     EDF["EDF+ 记录<br/>64 通道 · 160 Hz"] --> SRC["sources<br/>读取 · 回放 · 分块"]
     SRC -->|EEGChunk| RT["runtime<br/>会话 · 环形缓冲 · 队列"]
-    RT --> PROC["processing<br/>质量 · 滤波 · 分窗 · 特征"]
+    RT --> PROC["processing<br/>质量 · 滤波（A）<br/>分窗 · 特征（B）"]
     PROC --> DEC["decoding<br/>模型 · 三状态决策"]
     DEC -->|DecisionFrame| OUT["outputs<br/>JSONL · CSV · 事件"]
     DEC --> UI["ui<br/>波形 · 时间轴 · 火柴人"]
@@ -150,6 +154,8 @@ flowchart LR
 
 **事件**：`IntentEvent` 记录一次连续同类动作的起止、关联决策编号与结束原因；停止、异常、文件结束都必须关闭当前事件。
 
+**A → B 的边界（2026-11-02 起）**：B 只接收**已滤波、已判定质量的 `EEGChunk`**（[docs/01 §3.1](docs/01_接口约定_1.0.md)）。质量结论以 `QualityReport` 单独给出，不塞进块字段；B 侧不再滤波、不读标签、不复制 A 的滤波或质量实现。模型包要记录 A 的预处理规格指纹（阶数、频带、因果、SOS 指纹、质量原因码），启动时对不上就拒绝运行。
+
 ## 5. 目录结构
 
 ```text
@@ -157,7 +163,7 @@ bci-motor-imagery/
 ├── src/
 │   ├── eeg_core/                 # 纯核心库：不依赖 UI / IO
 │   │   ├── contracts/            # 数据帧、事件、配置、协议
-│   │   ├── processing/           # 质量、滤波、分窗、特征
+│   │   ├── processing/           # 质量+滤波（A）／分窗+特征（B）
 │   │   └── decoding/             # 模型结构、推理、决策
 │   └── eeg_app/                  # 应用层：UI、运行时、数据源、输出
 │       ├── app.py                # 依赖组装与启动
@@ -306,8 +312,8 @@ session_<会话编号>/
 
 | 成员 | 代号 | 角色 | 主责模块 |
 | --- | --- | --- | --- |
-| 张成恺 | A | 项目协调 · 输入集成 | `contracts/`、`sources/`、`runtime/`、`app.py`、测试与工程配置、CI |
-| 杨子江 | B | 数据与连续解码 | `processing/`、`decoding/`、`training/`、模型包 |
+| 张成恺 | A | 项目协调 · 输入集成 | `contracts/`、`sources/`、`runtime/`、`processing/quality.py`、`processing/filters.py`、`app.py`、测试与工程配置、CI |
+| 杨子江 | B | 数据与连续解码 | `processing/windows.py`、`processing/features.py`、`decoding/`、`training/`、模型包 |
 | 王斯正 | C | 桌面界面与反馈 | `ui/`（窗口、波形、时间轴、火柴人、状态文案） |
 | 宋筱潇 | D | 输出与评估发布 | `outputs/`、`evaluation/`、`packaging/`、评估报告与离线包 |
 
