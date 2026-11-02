@@ -4,12 +4,13 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 
 用公开的 EEG 数据按原始采样时序回放，持续判断**空闲 / 左手运动想象 / 右手运动想象**，并把滚动波形、双轨时间轴、火柴人反馈与结构化存档串成一条可复现的处理链。推理过程不读取任务标签或试次时间表。
 
-> **当前状态（2026-11-01，W2）**
-> 契约 1.0 的**输入侧、中间层与结果格式**已经写完：`EEGChunk`、`WindowRange`、`QualityReport`、
-> `SourceInfo`、`DataSource`、`ChunkStreamGuard`、`DecisionFrame`、`AppConfig` 等共 31 个导出，
-> 见 [docs/01](docs/01_接口约定_1.0.md)。**其余模块仍全部是 0 字节占位**（sources、runtime、
-> processing、decoding、ui、outputs、training、evaluation、packaging），`pyproject.toml`、CI 与依赖清单
-> 尚未填写，**应用还不能运行**。已完成的契约、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
+> **当前状态（2026-11-02，W2）**
+> 契约 1.0 的**输入侧、输出侧与配置**已经写完：`EEGChunk`、`WindowRange`、`SourceInfo`、
+> `QualityReport`、`DecisionFrame`、`ChunkStreamGuard`、`AppConfig` 等共 27 个导出，分成
+> `frames / outputs / events / protocols / config` 五个文件，见 [docs/01](docs/01_接口约定_1.0.md)。
+> **其余模块仍全部是 0 字节占位**（sources、runtime、processing、decoding、ui、outputs、training、
+> evaluation、packaging），`pyproject.toml`、CI 与依赖清单尚未填写，**应用还不能运行**。
+> 已完成的契约、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
 
 ---
 
@@ -53,7 +54,7 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | 部分 | 状态 | 说明 |
 | --- | --- | --- |
 | 目录与模块边界 | ✅ 完成 | `src/eeg_core` + `src/eeg_app` 分层，`contracts` 独立成包 |
-| 接口契约 1.0 | 🟡 输入侧与结果格式完成 | 31 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`IntentEvent`、会话状态、`Decoder` 未完成，进度见 [docs/05](docs/05_变更记录.md) |
+| 接口契约 1.0 | 🟡 输入侧与输出侧完成 | 27 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`IntentEvent`、会话状态未完成，`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
 | 契约测试与其余文档 | ⬜ 未开始 | `tests/unit/core/test_contracts.py` 与 docs 00、02–04、06、07 仍是空占位 |
 | 数据读取与回放 | ⬜ 未开始 | `sources/`、`runtime/` 为空占位 |
 | 处理与解码 | ⬜ 未开始 | `processing/`、`decoding/` 为空占位 |

@@ -1,32 +1,32 @@
-"""原始记录自带的标注事件：参考轨与评估专用，**不进解码路径**。
+"""契约 1.0 的事件：输入侧的参考标注、运行时重置的原因码。
 
-PRD §5.3 的标签隔离是硬规则：在线解码路径只接收 EEG 数据块与采样元数据，不接收类别
-标签、标注时间表或试次编号。所以原始标注不能塞进 ``EEGChunk``，而是单独成对象，由
-:class:`~eeg_core.contracts.protocols.MarkerSource` 提供给参考轨与评估代码。
+两条硬规则：
 
-本模块描述的是**输入侧的参考标注**；模型输出侧的动作事件（``IntentEvent``）是另一回事，
-后续单独实现，两者不要混用。
+1. **标签隔离**：参考标注（``ReferenceMarker``）只给参考轨和评估用，绝不放进 ``EEGChunk``，
+   也不进解码路径（PRD §5.3、T03）。
+2. **重置语义**：``ResetReason`` 说明「为什么必须忘掉历史」。按纪律，暂不为它抽象协议；
+   运行时会话控制器和所有有状态的流式组件（滤波器、窗器、解码器）按本枚举实现即可。
+   忘了重置的后果是隐蔽的：滤波器会把断点前后的样本算成一段连续信号，结果看起来正常但错得没边。
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import StrEnum
 
-from .frames import EEGChunkError, _require_int, _require_text
+from .frames import ContractError, _require_int, _require_text
 
-__all__ = ["ReferenceMarker"]
+__all__ = ["ReferenceMarker", "ResetReason"]
 
 
 @dataclass(frozen=True, slots=True)
 class ReferenceMarker:
     """一条原始标注：起止样本 + 原始标签。
 
-    ``label`` 保留记录里的原样文字（如 PhysioNet 的 ``T0``/``T1``/``T2``）。把它映射成
-    idle / left_hand / right_hand 属于评估口径（D 负责），不在这里做——否则「标签含义」
-    会提前固化进在线路径。
-
-    时间只用样本编号表达，与 ``EEGChunk`` 同一口径，避免出现两套时钟。
+    ``label`` 保留记录里的原样文字（如 PhysioNet 的 ``T0``/``T1``/``T2``）。映射成
+    idle / left_hand / right_hand 属于评估口径（D 负责），不在这里做。
+    时间只用样本编号表达，与 ``EEGChunk`` 同一口径。
     """
 
     recording_id: str
@@ -56,7 +56,7 @@ class ReferenceMarker:
         """标注起点的源时间（秒）；采样率由调用方提供，标注本身不复制一份。"""
         rate = float(sample_rate_hz)
         if not math.isfinite(rate) or rate <= 0.0:
-            raise EEGChunkError(f"sample_rate_hz 必须大于 0，收到 {sample_rate_hz!r}")
+            raise ContractError(f"sample_rate_hz 必须大于 0，收到 {sample_rate_hz!r}")
         return self.onset_sample / rate
 
     def covers_sample(self, sample: int) -> bool | None:
@@ -64,3 +64,24 @@ class ReferenceMarker:
         if self.duration_samples is None:
             return None
         return self.onset_sample <= sample < self.onset_sample + self.duration_samples
+
+
+class ResetReason(StrEnum):
+    """请求重置的原因；字符串枚举可直接写进 ``runtime.jsonl``，不必再维护映射。
+
+    各原因要求的效果（实现方按此清理，没有协议接口也照此执行）：
+
+    ``SESSION_START`` / ``DISCONTINUITY`` / ``QUALITY_INVALID``
+        丢弃全部与样本有关的状态——滤波状态（``zi``）、未完成窗口、预热计数、候选确认、
+        当前动作的连续判定；在下一次预热满足前，输出只能是 ``warming_up`` 或 ``invalid``。
+    ``PAUSE_RESUME``
+        保留滤波状态与已处理历史（数据没断），只作废候选确认，避免把暂停前已发布的窗
+        重复发布。
+
+    ``reset`` 必须幂等，且不抛异常干扰会话控制。
+    """
+
+    SESSION_START = "session_start"
+    DISCONTINUITY = "discontinuity"
+    QUALITY_INVALID = "quality_invalid"
+    PAUSE_RESUME = "pause_resume"
