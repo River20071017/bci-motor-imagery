@@ -22,7 +22,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QLineEdit, QFileDialog, QSplitter, QFrame, QCheckBox,
-    QMessageBox,
+    QMessageBox, QTabWidget,
 )
 
 from eeg_core.contracts import DEFAULT_CONFIG, MODEL_CHANNELS, DecisionState
@@ -32,6 +32,7 @@ from eeg_app.ui.waveform import WaveformWidget
 from eeg_app.ui.timeline import TimelineWidget
 from eeg_app.ui.stick_figure import StickmanWidget
 from eeg_app.ui.state_text import StatusPanel
+from eeg_app.ui.process import ProcessView
 
 # 默认显示的 8 个通道（PRD F06：FC3、FCz、FC4、C3、Cz、C4、CP3、CPz）
 DEFAULT_DISPLAY_CHANNELS = list(MODEL_CHANNELS[:8])
@@ -110,7 +111,12 @@ class MainWindow(QMainWindow):
         top.addWidget(self.check_fmt_btn)
         root.addLayout(top)
 
-        # 主体：波形 + 右栏
+        # 切屏：主界面 / 运行过程（QTabWidget）
+        tabs = QTabWidget()
+
+        # 第一屏：主界面（波形 + 右栏 + 时间轴）
+        main_view = QWidget()
+        main_layout = QVBoxLayout(main_view)
         splitter = QSplitter(Qt.Horizontal)
         disp = DEFAULT_CONFIG.display
         self.waveform = WaveformWidget(
@@ -128,11 +134,19 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
-        root.addWidget(splitter, stretch=3)
+        main_layout.addWidget(splitter, stretch=3)
 
         # 时间轴（界面测试模式展示独立参考轨；接入真实模块后设 reference_mode=False）
         self.timeline = TimelineWidget(reference_mode=True)
-        root.addWidget(self.timeline, stretch=1)
+        main_layout.addWidget(self.timeline, stretch=1)
+
+        tabs.addTab(main_view, "主界面")
+
+        # 第二屏：运行过程（思考/运行管线 + 处理日志 + 波形绘制过程）
+        self.process_view = ProcessView(DEFAULT_DISPLAY_CHANNELS)
+        tabs.addTab(self.process_view, "运行过程")
+
+        root.addWidget(tabs, stretch=3)
 
         # 控制条
         bottom = QHBoxLayout()
@@ -207,14 +221,18 @@ class MainWindow(QMainWindow):
             return
         self.waveform.clear()
         self.timeline.reset()
+        self.process_view.reset()
         session = _new_session_id("ui-test")
         self.worker = PlaybackWorker(source=self.source, decoder=self.decoder)
         self.worker.set_session(session)
         self.worker.chunk_ready.connect(self.waveform.append_chunk)
+        self.worker.chunk_ready.connect(self.process_view.on_chunk)
         self.worker.decision_ready.connect(self._on_decision)
+        self.worker.decision_ready.connect(self.process_view.on_decision)
         self.worker.playback_stopped.connect(lambda: self._finalize("已停止 · 结果过期"))
         self.worker.playback_finished.connect(lambda: self._finalize("文件结束，会话已完成"))
         self.worker.start()
+        self.process_view.set_running(True)
         self._running = True
         self._paused = False
         self.n08_demo_cb.setEnabled(True)
@@ -242,6 +260,7 @@ class MainWindow(QMainWindow):
         if self.worker and self._running:
             self._expiry.stop()
             self.stickman.mark_stale()     # N07：停止后立即停止动作反馈（<250ms）
+            self.process_view.set_running(False)
             self.worker.stop()
 
     def _finalize(self, message: str) -> None:
@@ -254,6 +273,7 @@ class MainWindow(QMainWindow):
         self._paused = False
         self._expiry.stop()
         self.stickman.mark_stale()
+        self.process_view.set_running(False)
         self.n08_demo_cb.setEnabled(False)
         self.n08_demo_cb.setChecked(False)
         self.statusBar().showMessage(message)
