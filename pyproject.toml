@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bci-motor-imagery"
+version = "0.1.0"
+description = "脑电运动想象连续解码桌面应用（离线 EEG 回放，连续三状态判断）"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "待团队确认" }
+dependencies = [
+    "numpy==2.5.4",
+    "scipy==1.18.1",
+    "mne==1.13.2",
+    "scikit-learn==1.9.1",
+    "PySide6==6.12.0",
+    "pyqtgraph==0.14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "pre-commit>=3.0",
+]
+package = [
+    "pyinstaller==6.22.3",
+]
+
+# 应用入口在 app.py / __main__.py 实现后再接上，避免安装成功但启动即崩。
+# [project.scripts]
+# eeg-app = "eeg_app.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

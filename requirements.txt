@@ -1,0 +1,8 @@
+# 运行时依赖（与 pyproject.toml 的 [project].dependencies 保持一致）
+# 开发依赖：pip install -e ".[dev]"；打包依赖：pip install -e ".[package]"
+numpy==2.5.4
+scipy==1.18.1
+mne==1.13.2
+scikit-learn==1.9.1
+PySide6==6.12.0
+pyqtgraph==0.14.0
