@@ -232,7 +232,7 @@ eeg-app
 - 数据集：[PhysioNet EEG Motor Movement/Imagery](https://physionet.org/content/eegmmidb/1.0.0/)，64 通道 EEG，160 Hz，EDF+
 - 仅启用 **run 4 / 8 / 12** 的左右手运动想象；T0、T1、T2 分别映射为 `idle`、`left_hand`、`right_hand`
 - 通道顺序与单位以记录为准；文件未写明的参考方式标为「未提供」，不猜测
-- 原始数据不入库，`data/*.edf` 已在 `.gitignore` 中忽略
+- 原始数据不入库，`data/*.edf` 已在 `.gitignore` 中忽略；本地数据卡与 SHA-256 清单见 [data/eegmmidb/README.md](data/eegmmidb/README.md)
 
 ### 7.2 固定划分
 
@@ -244,7 +244,7 @@ eeg-app
 | 验证 | 每人的 run 8 | 选通道、门限、时间规则 |
 | 封存测试 | 每人的 run 12 | 冻结后一次性生成正式评估 |
 
-标准化、CSP 等学习步骤只在训练数据上拟合；不将重叠窗口随机划分；所有受试者使用同一选择规则。
+标准化、CSP 等学习步骤只在训练数据上拟合；不将重叠窗口随机划分；所有受试者使用同一选择规则。机器可读的划分与逐文件 SHA-256 见 [training/splits.json](training/splits.json)。
 
 ### 7.3 会话输出
 
