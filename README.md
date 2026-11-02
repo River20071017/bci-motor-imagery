@@ -11,8 +11,8 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 > **数据源已实现**：`sources/input.py`（EDF → 内存数组、通道名规范化、标注隔离）与
 > `sources/replay.py`（1 倍速分块、暂停/继续/停止），11 条集成用例见
 > `tests/integration/test_replay.py`。
-> **其余模块仍是 0 字节占位**（runtime、decoding、ui、outputs、training、evaluation、packaging）；
-> `processing/` 目前只有归属说明：质量与因果滤波由 A 实现、分窗与特征由 B 实现，两者都还没写。
+> **其余模块仍是 0 字节占位**（runtime、decoding、ui、outputs、evaluation、packaging）；`training/` 目前只有
+> 数据划分与空 `checkpoints/`；`processing/` 只写了归属说明：质量与因果滤波由 A 实现、分窗与特征由 B 实现，两者都还没写。
 > **应用还不能运行**；已完成的契约、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
 
 ---
@@ -154,7 +154,7 @@ flowchart LR
 
 **事件**：`IntentEvent` 记录一次连续同类动作的起止、关联决策编号与结束原因；停止、异常、文件结束都必须关闭当前事件。
 
-**A → B 的边界（2026-11-02 起）**：B 只接收**已滤波、已判定质量的 `EEGChunk`**（[docs/01 §3.1](docs/01_接口约定_1.0.md)）。质量结论以 `QualityReport` 单独给出，不塞进块字段；B 侧不再滤波、不读标签、不复制 A 的滤波或质量实现。模型包要记录 A 的预处理规格指纹（阶数、频带、因果、SOS 指纹、质量原因码），启动时对不上就拒绝运行。
+**A → B 的边界（2026-11-02 起）**：在线路径上 B 只接收**已判质量、由 A 的 `FilterBank` 处理过的 `EEGChunk`**（[docs/01 §3.1](docs/01_接口约定_1.0.md)）；训练时 B 仍要读 EDF，但滤波与质量判定必须调用 A 的同一份实现。一个块只承载一路信号，8–13 / 13–30 Hz 两路频带由 `FilterBank` 从同一块算出，不复制 `seq` 造伪块；质量结论以 `QualityReport` 单独给出，不塞进块字段。B 侧不再滤波、不读标签、不复制 A 的滤波或质量实现；模型包要记录 A 的预处理规格指纹，启动时对不上就拒绝运行。**生效条件**：`quality.py`、`filters.py` 落地前这只是约定，`FilterBank` 签名由 A 定义。
 
 ## 5. 目录结构
 
@@ -176,7 +176,7 @@ bci-motor-imagery/
 ├── tests/                        # unit/core、unit/runtime、unit/evaluation、integration
 ├── examples/                     # 合成 EEG 与极小回放样本
 ├── packaging/                    # PyInstaller spec 与构建脚本
-├── scripts/                      # 环境自检、演示、锁文件导出
+├── scripts/                      # 环境自检、数据下载与校验、演示、锁文件导出
 ├── docs/                         # 00–07 技术文档，project/ 放管理文档
 ├── data/                         # 数据说明（.edf 不入库）
 ├── pyproject.toml                # 包定义、入口点、依赖、pytest/ruff
