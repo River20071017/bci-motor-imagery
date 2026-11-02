@@ -25,8 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from eeg_core.contracts import DEFAULT_CONFIG, MODEL_CHANNELS, DecisionState
-from eeg_core.contracts import DataSource
-from eeg_app.ui.playback import PlaybackWorker, DecoderProtocol
+from eeg_app.ui.playback import PlaybackWorker, DecoderProtocol, SourceProtocol
 from eeg_app.ui.waveform import WaveformWidget
 from eeg_app.ui.timeline import TimelineWidget
 from eeg_app.ui.stick_figure import StickmanWidget
@@ -44,7 +43,7 @@ def _new_session_id(prefix: str = "ui-test") -> str:
 class MainWindow(QMainWindow):
     def __init__(
         self,
-        source: DataSource,
+        source: SourceProtocol,
         decoder: DecoderProtocol,
         project_dir: str = "",
     ) -> None:

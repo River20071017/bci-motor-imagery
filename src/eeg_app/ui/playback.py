@@ -3,7 +3,7 @@
 职责（C 的分工 2.3）：
 - 在独立线程中驱动数据源与解码器，保证耗时操作不在主线程执行，
   不阻塞解码与界面（PRD 6.5：主线程只负责交互与绘制）。
-- 同时消费两条接口：``DataSource``（数据，来自 A）与解码器（算法，来自 B）。
+- 同时消费两条接口：数据源（结构约定 ``SourceProtocol``，来自 A）与解码器（算法，来自 B）。
   二者都可注入，因此"接入设备"与"匹配 B 的算法"对 C 的界面完全透明。
 - 支持 开始 / 暂停 / 继续 / 停止；暂停时回放源时钟停止（PRD 6.4）。
 - 以 ~50 ms 粒度释放 ``EEGChunk``；解码器自行决定 ``DecisionFrame`` 的发布节奏（PRD 6.1）。
@@ -23,11 +23,38 @@ from PySide6.QtCore import QThread, Signal, QElapsedTimer
 from eeg_core.contracts import (
     EEGChunk,
     DecisionFrame,
-    DataSource,
     ResetReason,
+    SourceInfo,
 )
 
 CHUNK_MS = 50        # ~8 样本 @160 Hz（PRD 6.1 目标 50 ms 一块）
+
+
+@runtime_checkable
+class SourceProtocol(Protocol):
+    """界面测试用数据源的结构约定（留后手 / 防御性契约）。
+
+    B 的冻结契约 v1 把 ``DataSource`` 从 ``eeg_core.contracts`` 中移除，
+    因此 C 的 UI 不再直接依赖该符号，只依赖它真正用到的"形状"：
+
+    * ``info``：``SourceInfo``，首次读取即可得到记录元数据；
+    * ``read_chunk()``：返回下一块 ``EEGChunk``，有限源结束后返回 ``None``；
+    * 支持上下文管理器（``with source:``）以释放资源。
+
+    任何满足上述结构的对象（EDF 回放 / 真实设备 / 模拟源）都可注入，
+    接入 A 的真实数据源时 C 的界面与回放控制器无需改动。
+    """
+
+    info: SourceInfo
+
+    def read_chunk(self) -> Optional[EEGChunk]:
+        ...
+
+    def __enter__(self) -> "SourceProtocol":
+        ...
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        ...
 
 
 @runtime_checkable
@@ -63,13 +90,13 @@ class PlaybackWorker(QThread):
     def __init__(
         self,
         parent=None,
-        source: Optional[DataSource] = None,
+        source: Optional[SourceProtocol] = None,
         decoder: Optional[DecoderProtocol] = None,
     ) -> None:
         super().__init__(parent)
-        # 任何实现 DataSource 协议的对象都可注入（EDF 回放 / 真实设备 / 未来设备）。
+        # 任何实现 SourceProtocol 结构的对象都可注入（EDF 回放 / 真实设备 / 未来设备）。
         if source is None:
-            raise ValueError("PlaybackWorker 需要一个 DataSource（数据来源）")
+            raise ValueError("PlaybackWorker 需要一个数据源（实现 SourceProtocol）")
         self.source = source
         self.sample_rate_hz = source.info.sample_rate_hz
         # 任何实现 DecoderProtocol 的对象都可注入（B 的连续解码算法）。

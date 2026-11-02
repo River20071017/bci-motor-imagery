@@ -3,7 +3,7 @@
 分工方案 4.2 允许：前期 C 可使用明确标识为"界面测试"的模拟结果对象，
 D 可使用格式样例并行开发；10月29日起集成演示应接真实处理结果。
 
-本模块实现团队契约 ``eeg_core.contracts.DataSource`` 协议：
+本模块实现界面测试用数据源的结构约定（对应 ``eeg_app.ui.playback.SourceProtocol``）：
 - ``info`` 返回 ``SourceInfo``（首次读取即可得到记录元数据）。
 - ``read_chunk()`` 返回下一块 ``EEGChunk``；有限源结束后返回 ``None``。
 - ``close()`` / 上下文管理器释放资源。
@@ -24,7 +24,7 @@ DEFAULT_CHANNELS = ["FC3", "FCz", "FC4", "C3", "Cz", "C4", "CP3", "CPz"]
 
 
 class MockEegSource:
-    """产生类似多通道脑电的连续信号块（单位：伏），实现 ``DataSource`` 协议。"""
+    """产生类似多通道脑电的连续信号块（单位：伏），实现 ``SourceProtocol`` 结构约定。"""
 
     def __init__(
         self,
@@ -57,7 +57,7 @@ class MockEegSource:
         self._t0 = time.perf_counter()
         self.reset()
 
-    # ---- DataSource 协议 ----
+    # ---- 数据源结构约定（SourceProtocol）----
     @property
     def info(self) -> SourceInfo:
         return self._info
