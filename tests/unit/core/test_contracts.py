@@ -17,6 +17,8 @@ import numpy as np
 import eeg_core.contracts as contracts
 from eeg_core.contracts import (
     DEFAULT_CONFIG,
+    END_REASONS,
+    FEATURE_LAYOUTS,
     MODEL_CHANNELS,
     QUALITY_REASONS,
     REFERENCE_POLICIES,
@@ -27,11 +29,17 @@ from eeg_core.contracts import (
     DecisionFrame,
     DecisionState,
     EEGChunk,
+    IncompatibleModelError,
     IncompatibleSourceError,
+    IntentEvent,
+    ModelInputSpec,
     QualityReport,
     ReferenceMarker,
     ResetReason,
+    RuntimeEvent,
+    RuntimeEventKind,
     Scores,
+    SessionState,
     SourceInfo,
     WindowRange,
     utc_now_iso,
@@ -115,12 +123,34 @@ def _frame(**overrides) -> DecisionFrame:
     return DecisionFrame(**payload)
 
 
+def _model_spec(**overrides) -> ModelInputSpec:
+    payload = {
+        "model_id": "mi-S001-lda-20261103",
+        "pipeline_version": "pipe-1.0",
+        "channels": MODEL_CHANNELS,
+        "sample_rate_hz": SAMPLE_RATE,
+        "reference_policy": DEFAULT_CONFIG.source.reference_policy,
+        "bands_hz": DEFAULT_CONFIG.processing.bands_hz,
+        "window_sec": DEFAULT_CONFIG.processing.window_sec,
+        "step_sec": DEFAULT_CONFIG.processing.step_sec,
+        "feature_layout": "channel_band",
+        "feature_floor": DEFAULT_CONFIG.processing.log_variance_floor,
+        "classes": ("idle", "left_hand", "right_hand"),
+        "decision": DEFAULT_CONFIG.decision,
+        "weights_sha256": "a" * 64,
+        "preprocessing_hash": DEFAULT_CONFIG.preprocessing_hash,
+        "training_files": {"data/eegmmidb/S001/S001R04.edf": "b" * 64},
+    }
+    payload.update(overrides)
+    return ModelInputSpec(**payload)
+
+
 # --------------------------------------------------------------------- 导出面
 
 
 def test_export_surface_is_pinned() -> None:
     """导出名单是契约的一部分：少一个、多一个都要显式改测试。"""
-    assert len(contracts.__all__) == 28
+    assert len(contracts.__all__) == 36
     required = {
         "CONTRACT_VERSION",
         "EEGChunk",
@@ -128,14 +158,21 @@ def test_export_surface_is_pinned() -> None:
         "SourceInfo",
         "ReferenceMarker",
         "ResetReason",
+        "SessionState",
+        "RuntimeEvent",
+        "RuntimeEventKind",
+        "IntentEvent",
         "QualityReport",
         "DecisionState",
         "Scores",
         "DecisionFrame",
+        "ModelInputSpec",
+        "IncompatibleModelError",
         "ChunkStreamGuard",
         "AppConfig",
         "MODEL_CHANNELS",
         "REFERENCE_POLICIES",
+        "FEATURE_LAYOUTS",
     }
     assert required <= set(contracts.__all__)
 
@@ -366,6 +403,214 @@ def test_reset_reasons_are_pinned() -> None:
         "quality_invalid",
         "pause_resume",
     }
+
+
+# --------------------------------------------------------------------- 事件与会话
+
+
+def test_intent_event_open_and_closed() -> None:
+    open_event = IntentEvent(
+        event_id="e1",
+        session_id="demo",
+        recording_id="S001R04",
+        state=DecisionState.LEFT_HAND,
+        start_sample=480,
+        start_decision_seq=12,
+    )
+    assert open_event.is_open
+    assert open_event.duration_samples is None
+    assert open_event.duration_sec(SAMPLE_RATE) is None
+
+    closed = IntentEvent(
+        event_id="e2",
+        session_id="demo",
+        recording_id="S001R04",
+        state=DecisionState.RIGHT_HAND,
+        start_sample=480,
+        start_decision_seq=12,
+        end_sample=800,
+        end_decision_seq=20,
+        end_reason="state_changed",
+    )
+    assert closed.duration_samples == 320
+    assert closed.duration_sec(SAMPLE_RATE) == 2.0
+    assert closed.end_reason in END_REASONS
+    assert set(closed.to_dict()) == {
+        "event_id",
+        "session_id",
+        "recording_id",
+        "state",
+        "start_sample",
+        "start_decision_seq",
+        "end_sample",
+        "end_decision_seq",
+        "end_reason",
+    }
+
+    _expect(
+        ContractError,
+        lambda: IntentEvent(
+            event_id="e3",
+            session_id="demo",
+            recording_id="S001R04",
+            state=DecisionState.LEFT_HAND,
+            start_sample=0,
+            start_decision_seq=0,
+            end_sample=320,
+        ),
+        "结束字段必须齐全",
+    )
+    _expect(
+        ContractError,
+        lambda: IntentEvent(
+            event_id="e4",
+            session_id="demo",
+            recording_id="S001R04",
+            state=DecisionState.LEFT_HAND,
+            start_sample=480,
+            start_decision_seq=12,
+            end_sample=480,
+            end_decision_seq=20,
+            end_reason="state_changed",
+        ),
+        "end_sample 必须大于 start_sample",
+    )
+    _expect(
+        ContractError,
+        lambda: IntentEvent(
+            event_id="e5",
+            session_id="demo",
+            recording_id="S001R04",
+            state=DecisionState.IDLE,
+            start_sample=0,
+            start_decision_seq=0,
+        ),
+        "只有左右手能成为动作事件",
+    )
+    _expect(
+        ContractError,
+        lambda: IntentEvent(
+            event_id="e6",
+            session_id="demo",
+            recording_id="S001R04",
+            state=DecisionState.LEFT_HAND,
+            start_sample=0,
+            start_decision_seq=0,
+            end_sample=320,
+            end_decision_seq=10,
+            end_reason="oops",
+        ),
+        "结束原因必须在词表内",
+    )
+
+
+def test_runtime_event_and_session_state() -> None:
+    assert [state.value for state in SessionState] == [
+        "ready",
+        "running",
+        "paused",
+        "finished",
+        "stopped",
+        "error",
+    ]
+    event = RuntimeEvent(
+        session_id="demo", at_monotonic_ms=12.5, kind=RuntimeEventKind.PAUSE, detail=" 用户暂停 "
+    )
+    assert event.to_dict() == {
+        "session_id": "demo",
+        "at_monotonic_ms": 12.5,
+        "kind": "pause",
+        "detail": "用户暂停",
+    }
+    _expect(
+        ContractError,
+        lambda: RuntimeEvent(session_id="demo", at_monotonic_ms=1.0, kind="pause"),
+        "kind 必须是枚举",
+    )
+
+
+# --------------------------------------------------------------------- 模型包
+
+
+def test_model_input_spec_rules() -> None:
+    spec = _model_spec()
+    assert spec.feature_count == 18
+    assert spec.classes == ("idle", "left_hand", "right_hand")
+    assert spec.feature_layout in FEATURE_LAYOUTS
+    assert len(spec.weights_sha256) == 64
+
+    _expect(
+        ContractError,
+        lambda: _model_spec(classes=("left_hand", "idle", "right_hand")),
+        "类别顺序固定，左右手不能换",
+    )
+    _expect(ContractError, lambda: _model_spec(weights_sha256="abc"), "权重 SHA-256 格式")
+    _expect(ContractError, lambda: _model_spec(feature_layout="row_major"), "特征布局词表")
+    _expect(ContractError, lambda: _model_spec(preprocessing_hash="zz"), "预处理指纹格式")
+    _expect(
+        ContractError,
+        lambda: _model_spec(channel_positions={"XX": (0.0, 0.0, 0.0)}),
+        "坐标键必须在 channels 内",
+    )
+
+
+def test_model_spec_compatibility() -> None:
+    spec = _model_spec()
+    spec.check_compatible(_info(), DEFAULT_CONFIG)  # 应当通过
+
+    bad_rate = _info(sample_rate_hz=250.0)
+    try:
+        spec.check_compatible(bad_rate, DEFAULT_CONFIG)
+    except IncompatibleModelError as error:
+        assert any("采样率" in reason for reason in error.reasons)
+    else:
+        raise AssertionError("采样率不符必须拒绝")
+
+    other_config = replace(
+        DEFAULT_CONFIG,
+        processing=replace(DEFAULT_CONFIG.processing, warmup_sec=4.0),
+    )
+    try:
+        spec.check_compatible(_info(), other_config)
+    except IncompatibleModelError as error:
+        assert any("预处理指纹" in reason for reason in error.reasons)
+    else:
+        raise AssertionError("预处理指纹不符必须拒绝")
+
+
+def test_preprocessing_hash_ignores_ui_and_chunking() -> None:
+    base = DEFAULT_CONFIG.preprocessing_hash
+    ui_only = replace(
+        DEFAULT_CONFIG, display=replace(DEFAULT_CONFIG.display, target_refresh_hz=30.0)
+    )
+    buffer_only = replace(
+        DEFAULT_CONFIG, runtime=replace(DEFAULT_CONFIG.runtime, ring_buffer_sec=60.0)
+    )
+    replay_only = replace(
+        DEFAULT_CONFIG,
+        source=replace(DEFAULT_CONFIG.source, target_chunk_ms=100.0, replay_speed=2.0),
+    )
+    for other in (ui_only, buffer_only, replay_only):
+        assert other.preprocessing_hash == base
+    assert ui_only.config_hash != DEFAULT_CONFIG.config_hash
+
+    signal_changed = replace(
+        DEFAULT_CONFIG, processing=replace(DEFAULT_CONFIG.processing, warmup_sec=4.0)
+    )
+    assert signal_changed.preprocessing_hash != base
+
+
+def test_source_info_hashable_and_path_sha() -> None:
+    first = _info(path="data/eegmmidb/S001/S001R04.edf", sha256="c" * 64)
+    second = _info(path="data/eegmmidb/S001/S001R04.edf", sha256="c" * 64)
+    assert hash(first) == hash(second)
+    assert first == second
+    _expect(ContractError, lambda: _info(sha256="xyz"), "sha256 必须 64 位十六进制")
+
+
+def test_quality_reasons_are_canonically_ordered() -> None:
+    report = QualityReport.failed(("flatline", "non_finite"))
+    assert report.reasons == ("non_finite", "flatline")
 
 
 def _run_all() -> int:

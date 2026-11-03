@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import math
 import numbers
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -435,6 +436,8 @@ class SourceInfo:
     n_samples: int | None = None
     channel_positions: Mapping[str, tuple[float, float, float]] | None = None
     device_metadata: Mapping[str, str] | None = None
+    path: str | None = None
+    sha256: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_id", _require_text(self.source_id, "source_id"))
@@ -458,6 +461,29 @@ class SourceInfo:
         )
         object.__setattr__(
             self, "device_metadata", _optional_metadata(self.device_metadata)
+        )
+        object.__setattr__(self, "path", _optional_text(self.path, "path"))
+        object.__setattr__(self, "sha256", _optional_sha256(self.sha256))
+
+    def __hash__(self) -> int:
+        """自定义哈希：坐标与元数据是只读映射，先转成排序后的元组再参与哈希。"""
+        positions = tuple(sorted((self.channel_positions or {}).items()))
+        metadata = tuple(sorted((self.device_metadata or {}).items()))
+        return hash(
+            (
+                self.source_id,
+                self.recording_id,
+                self.sample_rate_hz,
+                self.channel_names,
+                self.reference,
+                self.subject_id,
+                self.run,
+                self.n_samples,
+                positions,
+                metadata,
+                self.path,
+                self.sha256,
+            )
         )
 
     @property
@@ -574,3 +600,13 @@ def _optional_metadata(value: object) -> Mapping[str, str] | None:
             raise ContractError(f"device_metadata[{key!r}] 的值必须是字符串")
         metadata[key.strip()] = item.strip()
     return MappingProxyType(metadata)
+
+
+def _optional_sha256(value: object) -> str | None:
+    """校验源文件 SHA-256：64 位小写十六进制；缺失保持 ``None``。"""
+    if value is None:
+        return None
+    text = _require_text(value, "sha256").lower()
+    if re.fullmatch(r"[0-9a-f]{64}", text) is None:
+        raise ContractError(f"sha256 必须是 64 位十六进制字符串，收到 {value!r}")
+    return text

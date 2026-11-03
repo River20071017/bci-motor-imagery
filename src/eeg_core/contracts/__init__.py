@@ -31,7 +31,15 @@ from .config import (
     RuntimeConfig,
     SourceConfig,
 )
-from .events import ReferenceMarker, ResetReason
+from .events import (
+    END_REASONS,
+    IntentEvent,
+    ReferenceMarker,
+    ResetReason,
+    RuntimeEvent,
+    RuntimeEventKind,
+    SessionState,
+)
 from .frames import (
     CONTRACT_VERSION,
     EEG_UNIT,
@@ -40,6 +48,11 @@ from .frames import (
     IncompatibleSourceError,
     SourceInfo,
     WindowRange,
+)
+from .model import (
+    FEATURE_LAYOUTS,
+    IncompatibleModelError,
+    ModelInputSpec,
 )
 from .outputs import (
     QUALITY_REASONS,
@@ -54,6 +67,8 @@ from .protocols import ChunkSequenceError, ChunkStreamGuard, DataValidator
 __all__ = [
     "CONTRACT_VERSION",
     "DEFAULT_CONFIG",
+    "END_REASONS",
+    "FEATURE_LAYOUTS",
     "MODEL_CHANNELS",
     "REFERENCE_POLICIES",
     "AppConfig",
@@ -68,14 +83,20 @@ __all__ = [
     "DisplayConfig",
     "EEGChunk",
     "EEG_UNIT",
+    "IncompatibleModelError",
     "IncompatibleSourceError",
+    "IntentEvent",
+    "ModelInputSpec",
     "ProcessingConfig",
     "QUALITY_REASONS",
     "QualityReport",
     "ReferenceMarker",
     "ResetReason",
     "RuntimeConfig",
+    "RuntimeEvent",
+    "RuntimeEventKind",
     "Scores",
+    "SessionState",
     "SourceConfig",
     "SourceInfo",
     "WindowRange",

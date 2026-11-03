@@ -382,6 +382,38 @@ class AppConfig:
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
+    @property
+    def preprocessing_hash(self) -> str:
+        """**只覆盖信号路径**的指纹：采样率、通道、参考、滤波、窗、频带。
+
+        与 :attr:`config_hash` 的区别：界面刷新率、环形缓冲、回放速度、分块大小、
+        门限有效期等变化**不会**改变它。T02 用它比对模型包，避免“改个 UI 参数就
+        报模型不兼容”，也避免“改个块长就要求重训”。``DecisionConfig`` 不参与，
+        因为门限允许按受试者在验证阶段调整，实际取值由模型包记录。
+        """
+        payload = {
+            "source": {
+                "sample_rate_hz": self.source.sample_rate_hz,
+                "channel_count": self.source.channel_count,
+                "model_channels": list(self.source.model_channels),
+                "reference_policy": self.source.reference_policy,
+            },
+            "processing": {
+                "window_sec": self.processing.window_sec,
+                "step_sec": self.processing.step_sec,
+                "bands_hz": [list(band) for band in self.processing.bands_hz],
+                "filter_order": self.processing.filter_order,
+                "filter_impl": self.processing.filter_impl,
+                "log_variance_floor": self.processing.log_variance_floor,
+                "warmup_sec": self.processing.warmup_sec,
+                "amplitude_limit_uv": self.processing.amplitude_limit_uv,
+                "flatline_sec": self.processing.flatline_sec,
+                "flatline_tolerance_uv": self.processing.flatline_tolerance_uv,
+            },
+        }
+        text = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
 
 DEFAULT_CONFIG = AppConfig()
 """初始工程配置；验证阶段允许比较后修改，正式测试前冻结并升契约版本。"""

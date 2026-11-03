@@ -98,6 +98,9 @@ class QualityReport:
         if not self.valid and not reasons:
             raise ContractError("valid=False 时必须给出至少一个原因码")
 
+        # 原因码按 QUALITY_REASONS 的固定顺序排列，保证 CSV/日志在不同实现下可比。
+        reasons = [code for code in QUALITY_REASONS if code in set(reasons)]
+
         object.__setattr__(self, "reasons", tuple(reasons))
         object.__setattr__(self, "bad_channels", tuple(channels))
 
