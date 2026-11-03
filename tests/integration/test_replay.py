@@ -17,19 +17,19 @@ from pathlib import Path
 
 import numpy as np
 
-from eeg_core.contracts import (
-    DEFAULT_CONFIG,
-    ChunkStreamGuard,
-    ContractError,
-    IncompatibleSourceError,
-    SourceInfo,
-)
 from eeg_app.sources import (
     Recording,
     ReplaySource,
     SourceState,
     chunk_samples_for,
     standardize_channel_names,
+)
+from eeg_core.contracts import (
+    DEFAULT_CONFIG,
+    ChunkStreamGuard,
+    ContractError,
+    IncompatibleSourceError,
+    SourceInfo,
 )
 
 DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "eegmmidb"

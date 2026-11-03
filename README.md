@@ -6,8 +6,8 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 
 > **当前状态（2026-11-02，W2）**
 > 契约 1.0 的**输入侧、输出侧与配置**已经写完：`EEGChunk`、`WindowRange`、`SourceInfo`、
-> `QualityReport`、`DecisionFrame`、`ChunkStreamGuard`、`AppConfig` 等共 27 个导出，分成
-> `frames / outputs / events / protocols / config` 五个文件，见 [docs/01](docs/01_接口约定_1.0.md)。
+> `QualityReport`、`DecisionFrame`、`ChunkStreamGuard`、`AppConfig` 等共 36 个导出，分成
+> `frames / outputs / events / model / protocols / config` 六个文件，见 [docs/01](docs/01_接口约定_1.0.md)。
 > **数据源已实现**：`sources/input.py`（EDF → 内存数组、通道名规范化、标注隔离）与
 > `sources/replay.py`（1 倍速分块、暂停/继续/停止），11 条集成用例见
 > `tests/integration/test_replay.py`。
@@ -57,7 +57,7 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | 部分 | 状态 | 说明 |
 | --- | --- | --- |
 | 目录与模块边界 | ✅ 完成 | `src/eeg_core` + `src/eeg_app` 分层，`contracts` 独立成包 |
-| 接口契约 1.0 | 🟡 输入侧与输出侧完成 | 27 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`IntentEvent`、会话状态未完成，`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
+| 接口契约 1.0 | ✅ 已冻结（2026-11-03） | 36 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
 | 契约测试与其余文档 | 🟡 部分完成 | 回放集成用例 11 条已入库；`tests/unit/core/test_contracts.py` 与 docs 00、02–04、06、07 仍是空占位 |
 | 数据读取与回放 | 🟡 部分完成 | `sources/` 已实现 EDF 读取与 1 倍速回放（含暂停/继续/停止）；`runtime/` 为空占位 |
 | 处理与解码 | ⬜ 未开始 | `processing/` 只有归属说明（质量+滤波 A／分窗+特征 B），`decoding/` 为空占位 |
@@ -132,7 +132,7 @@ flowchart LR
 
 ### 4.3 接口契约
 
-统一契约版本 `1.0`，字段变更须先更新契约与样例，再改双方模块。
+统一契约版本 `1.0`，**2026-11-03 冻结**（标签 `contract-1.0`）。结构或语义变更须先升版本、更新契约与样例，再改双方模块；纯数值调整只记 `config_hash`。
 
 **EEGChunk**（A → 处理/显示）
 
@@ -150,9 +150,11 @@ flowchart LR
 
 包含 `decision_state`（`warming_up` / `idle` / `left_hand` / `right_hand` / `uncertain` / `invalid`）、`intent`、`scores`（idle/left/right）、证据窗 `window_start_sample`–`window_end_sample`（左闭右开）、`source_t_sec`、质量标记、`model_id` / `pipeline_version` / `config_hash`、`valid_for_ms` 等字段。
 
-**会话状态**：`Ready → Running ⇄ Paused → Stopped / Finished / Error`，与模型状态分开保存。
+**会话状态**：`Ready → Running ⇄ Paused → Stopped / Finished / Error`，与模型状态分开保存；`SessionState` / `RuntimeEvent` 在 `events.py`，后者写 `runtime.jsonl`。
 
-**事件**：`IntentEvent` 记录一次连续同类动作的起止、关联决策编号与结束原因；停止、异常、文件结束都必须关闭当前事件。
+**事件**：`IntentEvent` 记录一次连续同类动作的起止、关联决策序号与结束原因；停止、异常、文件结束都必须关闭当前事件，写 `events.csv`。
+
+**模型包**：`ModelInputSpec` 定义训练产物对输入的要求（通道顺序、参考、频带、窗/步长、特征布局、类别顺序、门限、权重与训练文件 SHA、预处理指纹）；启动时 `check_compatible` 不通过就抛 `IncompatibleModelError`（T02）。
 
 **A → B 的边界（2026-11-02 起）**：在线路径上 B 只接收**已判质量、由 A 的 `FilterBank` 处理过的 `EEGChunk`**（[docs/01 §3.1](docs/01_接口约定_1.0.md)）；训练时 B 仍要读 EDF，但滤波与质量判定必须调用 A 的同一份实现。一个块只承载一路信号，8–13 / 13–30 Hz 两路频带由 `FilterBank` 从同一块算出，不复制 `seq` 造伪块；质量结论以 `QualityReport` 单独给出，不塞进块字段。B 侧不再滤波、不读标签、不复制 A 的滤波或质量实现；模型包要记录 A 的预处理规格指纹，启动时对不上就拒绝运行。**生效条件**：`quality.py`、`filters.py` 落地前这只是约定，`FilterBank` 签名由 A 定义。
 
@@ -274,7 +276,7 @@ session_<会话编号>/
 | 回放速率 | 1 倍速 |
 | 供数粒度 | 目标 50 ms 一块（160 Hz 约 8 样本，允许块长变化） |
 | 模型通道 | FC3、FCz、FC4、C3、Cz、C4、CP3、CPz、CP4 |
-| 参考策略 | 模型通道平均参考，训练与运行一致 |
+| 参考策略 | `model_channel_average`（由 A 的 `FilterBank` 实现；训练必须调用同一份实现） |
 | 特征频带 | 8–13 Hz、13–30 Hz |
 | 滤波 | 四阶 Butterworth SOS，分块保留状态，因果 |
 | 特征 | 每个通道、每个频带的对数方差（下限固定） |

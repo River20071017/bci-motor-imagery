@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from .frames import (
@@ -46,7 +46,7 @@ _UTC_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
 
 def utc_now_iso() -> str:
     """当前 UTC 时间，按契约格式返回；统一入口，避免各模块自己拼时间串。"""
-    moment = datetime.now(timezone.utc)
+    moment = datetime.now(UTC)
     return moment.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
@@ -97,6 +97,9 @@ class QualityReport:
             raise ContractError("valid=True 时不能带 reasons 或 bad_channels")
         if not self.valid and not reasons:
             raise ContractError("valid=False 时必须给出至少一个原因码")
+
+        # 原因码按 QUALITY_REASONS 的固定顺序排列，保证 CSV/日志在不同实现下可比。
+        reasons = [code for code in QUALITY_REASONS if code in set(reasons)]
 
         object.__setattr__(self, "reasons", tuple(reasons))
         object.__setattr__(self, "bad_channels", tuple(channels))

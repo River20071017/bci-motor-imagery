@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import math
 import numbers
-from collections.abc import Sequence
-
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 
 import numpy as np
 
@@ -418,6 +419,10 @@ class SourceInfo:
     """一条原始记录的档案卡：记录是什么，不是能不能解码。
 
     ``reference`` 为 ``None`` 表示记录没有写明的参考方式——按规范标为「未提供」，不猜。
+    ``channel_positions`` 是通道名 → 三维坐标的只读映射，用于核对“名字是 C3、电极也在 C3”；
+    文件里没有电极坐标时留 ``None``，不拿模板坐标冒充真实位置。``device_metadata`` 记录
+    厂商、型号、硬件滤波、工频、绝对起始时间等溯源信息，供 manifest 与模型包核对。
+
     兼容性判断在 :meth:`check_compatible` 里按调用方要求逐项核对，不在数据层写死模型参数。
     """
 
@@ -429,6 +434,10 @@ class SourceInfo:
     subject_id: str | None = None
     run: str | None = None
     n_samples: int | None = None
+    channel_positions: Mapping[str, tuple[float, float, float]] | None = None
+    device_metadata: Mapping[str, str] | None = None
+    path: str | None = None
+    sha256: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_id", _require_text(self.source_id, "source_id"))
@@ -438,12 +447,44 @@ class SourceInfo:
             "sample_rate_hz",
             _require_real(self.sample_rate_hz, "sample_rate_hz", strictly_positive=True),
         )
-        object.__setattr__(self, "channel_names", _require_channel_names(self.channel_names))
+        channel_names = _require_channel_names(self.channel_names)
+        object.__setattr__(self, "channel_names", channel_names)
         object.__setattr__(self, "reference", _optional_text(self.reference, "reference"))
         object.__setattr__(self, "subject_id", _optional_text(self.subject_id, "subject_id"))
         object.__setattr__(self, "run", _optional_text(self.run, "run"))
         if self.n_samples is not None:
             object.__setattr__(self, "n_samples", _require_int(self.n_samples, "n_samples"))
+        object.__setattr__(
+            self,
+            "channel_positions",
+            _optional_positions(self.channel_positions, channel_names),
+        )
+        object.__setattr__(
+            self, "device_metadata", _optional_metadata(self.device_metadata)
+        )
+        object.__setattr__(self, "path", _optional_text(self.path, "path"))
+        object.__setattr__(self, "sha256", _optional_sha256(self.sha256))
+
+    def __hash__(self) -> int:
+        """自定义哈希：坐标与元数据是只读映射，先转成排序后的元组再参与哈希。"""
+        positions = tuple(sorted((self.channel_positions or {}).items()))
+        metadata = tuple(sorted((self.device_metadata or {}).items()))
+        return hash(
+            (
+                self.source_id,
+                self.recording_id,
+                self.sample_rate_hz,
+                self.channel_names,
+                self.reference,
+                self.subject_id,
+                self.run,
+                self.n_samples,
+                positions,
+                metadata,
+                self.path,
+                self.sha256,
+            )
+        )
 
     @property
     def reference_label(self) -> str:
@@ -516,3 +557,56 @@ def _optional_text(value: object, field_name: str) -> str | None:
     if value is None:
         return None
     return _require_text(value, field_name)
+
+
+def _optional_positions(
+    value: object, channel_names: tuple[str, ...]
+) -> Mapping[str, tuple[float, float, float]] | None:
+    """校验通道坐标：键必须是本记录的通道，值必须三个有限实数；返回只读映射。"""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ContractError("channel_positions 必须是 通道名 → (x, y, z) 的映射")
+
+    positions: dict[str, tuple[float, float, float]] = {}
+    known = set(channel_names)
+    for name, xyz in value.items():
+        if not isinstance(name, str) or name not in known:
+            raise ContractError(f"channel_positions 里的通道 {name!r} 不在通道表中")
+        try:
+            x, y, z = xyz  # type: ignore[misc]
+        except (TypeError, ValueError):
+            raise ContractError(f"channel_positions[{name}] 必须是三个数字") from None
+        positions[name] = (
+            _require_real(x, f"channel_positions[{name}].x"),
+            _require_real(y, f"channel_positions[{name}].y"),
+            _require_real(z, f"channel_positions[{name}].z"),
+        )
+    return MappingProxyType(positions)
+
+
+def _optional_metadata(value: object) -> Mapping[str, str] | None:
+    """校验设备元数据：非空键、字符串值；返回只读映射。"""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ContractError("device_metadata 必须是 键 → 字符串 的映射")
+
+    metadata: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ContractError("device_metadata 的键必须是非空字符串")
+        if not isinstance(item, str):
+            raise ContractError(f"device_metadata[{key!r}] 的值必须是字符串")
+        metadata[key.strip()] = item.strip()
+    return MappingProxyType(metadata)
+
+
+def _optional_sha256(value: object) -> str | None:
+    """校验源文件 SHA-256：64 位小写十六进制；缺失保持 ``None``。"""
+    if value is None:
+        return None
+    text = _require_text(value, "sha256").lower()
+    if re.fullmatch(r"[0-9a-f]{64}", text) is None:
+        raise ContractError(f"sha256 必须是 64 位十六进制字符串，收到 {value!r}")
+    return text
