@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from .frames import (
@@ -46,7 +46,7 @@ _UTC_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$"
 
 def utc_now_iso() -> str:
     """当前 UTC 时间，按契约格式返回；统一入口，避免各模块自己拼时间串。"""
-    moment = datetime.now(timezone.utc)
+    moment = datetime.now(UTC)
     return moment.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 

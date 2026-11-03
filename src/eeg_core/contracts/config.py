@@ -6,15 +6,17 @@
 
 三条使用规则：
 
-1. **只读**：所有配置都是 ``frozen`` 数据类，运行中不能改。要换参数就换一份配置重新跑；
-   改参数必须升 :data:`CONTRACT_VERSION` 并同步 docs/01，配置不能变成隐形的可变全局状态。
+1. **只读**：所有配置都是 ``frozen`` 数据类，运行中不能改。要换参数就换一份配置重新跑。
+   **结构或语义变更**（加/删字段、改单位、改时间口径）必须升 :data:`CONTRACT_VERSION` 并同步
+   docs/01；**纯数值调整**（门限、有效期、刷新率等）不升版本，只通过 :attr:`AppConfig.config_hash`
+   写进 manifest 与运行日志——否则验证阶段每调一次阈值就要发一次版本。
 2. **可溯源**：:attr:`AppConfig.config_hash` 覆盖全部字段，写进 manifest 与
    ``DecisionFrame.config_hash``；同一份配置在任何机器上都得到同一个 hash。
-3. **与模型包一致**：通道表、采样率、滤波与门限必须与模型包记录一致，不一致时拒绝运行
+3. **与模型包一致**：通道表、采样率、滤波、参考方式与门限必须与模型包记录一致，不一致时拒绝运行
    （T02），不能在运行时「凑合换一个」。
 
-未冻结项：对数方差下限目前是占位值；质量检查的幅值、常量段阈值 PRD 尚未给出数值，等 B
-在验证阶段确定后再补进本文件（补字段同样要升契约版本）。本文件不收录这些占位以上的推测值。
+未冻结项：对数方差下限与质量阈值目前都是占位值（见 :class:`ProcessingConfig`），等 B 用
+S001–S005 验证后定稿；补字段同样要升契约版本。
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from .frames import CONTRACT_VERSION
 __all__ = [
     "DEFAULT_CONFIG",
     "MODEL_CHANNELS",
+    "REFERENCE_POLICIES",
     "AppConfig",
     "ConfigError",
     "DecisionConfig",
@@ -41,6 +44,19 @@ __all__ = [
 
 MODEL_CHANNELS = ("FC3", "FCz", "FC4", "C3", "Cz", "C4", "CP3", "CPz", "CP4")
 """模型使用的 9 个通道；顺序即特征向量顺序，训练与运行必须一致。"""
+
+REFERENCE_POLICIES = (
+    "as_recorded",
+    "model_channel_average",
+    "average_all",
+    "linked_mastoid",
+    "cz",
+)
+"""``SourceConfig.reference_policy`` 的固定词表。
+
+``as_recorded`` 表示不额外重参考、直接用文件里记录的参考（首版默认）；其余取值定义应用层
+自己的重参考方式。**训练与运行时必须一致**，否则分布错位；实际取值写进模型包的预处理指纹。
+"""
 
 
 class ConfigError(ValueError):
@@ -133,7 +149,8 @@ class SourceConfig:
     ``reference_policy`` 是**应用自己**要做的重参考（训练与运行必须一致），
     不是文件里写的参考方式——后者在 ``SourceInfo.reference``，缺失时记为「未提供」。
     不要把本字段传给 ``check_compatible(required_reference=...)`` 去核对文件头，
-    两件事含义不同。
+    两件事含义不同。取值只能来自 :data:`REFERENCE_POLICIES`；首版用
+    ``model_channel_average``，由 A 的 ``FilterBank`` 实现，训练必须调用同一份实现。
     """
 
     sample_rate_hz: float = 160.0
@@ -154,12 +171,17 @@ class SourceConfig:
         model_channels = _require_channels(self.model_channels, "model_channels")
         if len(model_channels) > channel_count:
             raise ConfigError(
-                f"model_channels 数量不能超过 channel_count，收到 {len(model_channels)} > {channel_count}"
+                "model_channels 数量不能超过 channel_count，"
+                f"收到 {len(model_channels)} > {channel_count}"
             )
         object.__setattr__(self, "model_channels", model_channels)
         object.__setattr__(
             self, "reference_policy", _require_text(self.reference_policy, "reference_policy")
         )
+        if self.reference_policy not in REFERENCE_POLICIES:
+            raise ConfigError(
+                f"reference_policy 必须是 {REFERENCE_POLICIES} 之一，收到 {self.reference_policy!r}"
+            )
         object.__setattr__(
             self,
             "replay_speed",
@@ -174,7 +196,12 @@ class SourceConfig:
 
 @dataclass(frozen=True, slots=True)
 class ProcessingConfig:
-    """处理与特征：窗口、频带、滤波与预热。"""
+    """处理与特征：窗口、频带、滤波、预热与质量阈值。
+
+    质量阈值单位是**微伏 / 秒**（与界面一致），由 ``app.py`` 组装时乘 ``1e-6`` 传给
+    :class:`eeg_core.processing.quality.QualityChecker`（它的参数单位是伏），换算只做一次。
+    三个阈值当前都是**占位值**，等 B 用 S001–S005 验证后定稿；定稿只改数值，不改字段。
+    """
 
     window_sec: float = 2.0
     step_sec: float = 0.25
@@ -183,6 +210,14 @@ class ProcessingConfig:
     filter_impl: str = "butterworth_sos"
     log_variance_floor: float = 1e-12
     warmup_sec: float = 3.0
+    amplitude_limit_uv: float = 500.0
+    """单样本绝对值上限（µV），超过判 ``amplitude``。占位值。"""
+
+    flatline_sec: float = 1.0
+    """连续常量段达到此时长（秒）判 ``flatline``。占位值。"""
+
+    flatline_tolerance_uv: float = 0.5
+    """相邻样本绝对差 ≤ 此值（µV）视为未变化；0 表示严格相等。占位值。"""
 
     def __post_init__(self) -> None:
         window = _require_real(self.window_sec, "window_sec", strictly_positive=True)
@@ -203,6 +238,21 @@ class ProcessingConfig:
         )
         object.__setattr__(
             self, "warmup_sec", _require_real(self.warmup_sec, "warmup_sec", minimum=0.0)
+        )
+        object.__setattr__(
+            self,
+            "amplitude_limit_uv",
+            _require_real(self.amplitude_limit_uv, "amplitude_limit_uv", strictly_positive=True),
+        )
+        object.__setattr__(
+            self,
+            "flatline_sec",
+            _require_real(self.flatline_sec, "flatline_sec", strictly_positive=True),
+        )
+        object.__setattr__(
+            self,
+            "flatline_tolerance_uv",
+            _require_real(self.flatline_tolerance_uv, "flatline_tolerance_uv", minimum=0.0),
         )
 
 

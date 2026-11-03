@@ -6,7 +6,7 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 
 > **当前状态（2026-11-02，W2）**
 > 契约 1.0 的**输入侧、输出侧与配置**已经写完：`EEGChunk`、`WindowRange`、`SourceInfo`、
-> `QualityReport`、`DecisionFrame`、`ChunkStreamGuard`、`AppConfig` 等共 27 个导出，分成
+> `QualityReport`、`DecisionFrame`、`ChunkStreamGuard`、`AppConfig` 等共 28 个导出，分成
 > `frames / outputs / events / protocols / config` 五个文件，见 [docs/01](docs/01_接口约定_1.0.md)。
 > **数据源已实现**：`sources/input.py`（EDF → 内存数组、通道名规范化、标注隔离）与
 > `sources/replay.py`（1 倍速分块、暂停/继续/停止），11 条集成用例见
@@ -57,7 +57,7 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | 部分 | 状态 | 说明 |
 | --- | --- | --- |
 | 目录与模块边界 | ✅ 完成 | `src/eeg_core` + `src/eeg_app` 分层，`contracts` 独立成包 |
-| 接口契约 1.0 | 🟡 输入侧与输出侧完成 | 27 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`IntentEvent`、会话状态未完成，`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
+| 接口契约 1.0 | 🟡 输入侧与输出侧完成 | 28 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`IntentEvent`、会话状态未完成，`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
 | 契约测试与其余文档 | 🟡 部分完成 | 回放集成用例 11 条已入库；`tests/unit/core/test_contracts.py` 与 docs 00、02–04、06、07 仍是空占位 |
 | 数据读取与回放 | 🟡 部分完成 | `sources/` 已实现 EDF 读取与 1 倍速回放（含暂停/继续/停止）；`runtime/` 为空占位 |
 | 处理与解码 | ⬜ 未开始 | `processing/` 只有归属说明（质量+滤波 A／分窗+特征 B），`decoding/` 为空占位 |
@@ -274,7 +274,7 @@ session_<会话编号>/
 | 回放速率 | 1 倍速 |
 | 供数粒度 | 目标 50 ms 一块（160 Hz 约 8 样本，允许块长变化） |
 | 模型通道 | FC3、FCz、FC4、C3、Cz、C4、CP3、CPz、CP4 |
-| 参考策略 | 模型通道平均参考，训练与运行一致 |
+| 参考策略 | `model_channel_average`（由 A 的 `FilterBank` 实现；训练必须调用同一份实现） |
 | 特征频带 | 8–13 Hz、13–30 Hz |
 | 滤波 | 四阶 Butterworth SOS，分块保留状态，因果 |
 | 特征 | 每个通道、每个频带的对数方差（下限固定） |

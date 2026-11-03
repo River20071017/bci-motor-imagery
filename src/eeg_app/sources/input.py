@@ -102,7 +102,9 @@ class Recording:
     def __post_init__(self) -> None:
         samples = np.asarray(self.samples)
         if samples.ndim != 2:
-            raise ContractError(f"samples 必须是二维数组（通道数 × 样本数），收到 {samples.ndim} 维")
+            raise ContractError(
+                f"samples 必须是二维数组（通道数 × 样本数），收到 {samples.ndim} 维"
+            )
         if samples.shape[0] != len(self.info.channel_names):
             raise ContractError(
                 f"samples 第 0 维应为通道数 {len(self.info.channel_names)}，收到 {samples.shape[0]}"
@@ -168,8 +170,10 @@ def load_edf(
 
     try:
         import mne
-    except ImportError as exc:  # pragma: no cover - 依赖缺失时才会走到
+    except ImportError as exc:
         raise ContractError("读取 EDF 需要 mne：请先安装 requirements.txt 中的依赖") from exc
+    except Exception as exc:  # noqa: BLE001 - 配置目录不可写等初始化失败
+        raise ContractError(f"无法初始化 mne（依赖缺失或配置目录不可写）：{exc}") from exc
 
     try:
         raw = mne.io.read_raw_edf(file_path, preload=True, verbose="ERROR")
@@ -234,6 +238,7 @@ def _read_markers(
     """把 EDF 内嵌标注换成 :class:`ReferenceMarker`，时间一律用样本编号。
 
     ``label`` 原样保留（``T0``/``T1``/``T2``），不在这里映射成 idle/左右手——那是评估口径。
+    秒→样本号统一用四舍五入（``round``），与 docs/01 §3.2 一致；不要混用 floor。
     """
     annotations = getattr(raw, "annotations", None)
     if annotations is None:

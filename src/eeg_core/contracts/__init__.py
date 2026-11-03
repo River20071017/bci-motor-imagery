@@ -22,6 +22,7 @@
 from .config import (
     DEFAULT_CONFIG,
     MODEL_CHANNELS,
+    REFERENCE_POLICIES,
     AppConfig,
     ConfigError,
     DecisionConfig,
@@ -54,6 +55,7 @@ __all__ = [
     "CONTRACT_VERSION",
     "DEFAULT_CONFIG",
     "MODEL_CHANNELS",
+    "REFERENCE_POLICIES",
     "AppConfig",
     "ChunkSequenceError",
     "ChunkStreamGuard",
