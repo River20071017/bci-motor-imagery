@@ -1,11 +1,16 @@
-"""契约 1.0 的输入侧数据：一块脑电、一个观察窗、一条记录的档案。
+"""契约 1.1 的输入侧数据：一块脑电、一个观察窗、一条记录的档案。
 
 本模块只放「进来的数据」和它们的校验，不放协议、不放输出结构、不放配置。
 三个盒子都是 ``frozen`` dataclass：构造即校验，交出去就改不了。
 
+**数据源自描述**：``EEGChunk.channel_names`` / ``n_channels`` 由数据源在实例化时填，
+不看任何配置里的通道数；换 22 导的 BCIC IV 或 2 导的消费级设备都不需要改这里。
+算法需要哪些通道（模型通道）属于「模型要求」，由 ``ModelInputSpec`` / ``SourceConfig``
+表达，由 ``check_compatible`` 显式报错，不在本模块写死。
+
 全包统一的两条换算规则：
 
-* **单位**：``EEGChunk.samples`` 一律为伏（``EEG_UNIT``）。适配器负责把 EDF 的微伏换算成伏，
+* **单位**：``EEGChunk.samples`` 一律为伏（``EEG_UNIT``）。数据源层负责换算成伏，
   界面再乘 ``1e6`` 显示；中间任何一层都不再换算。
 * **时间**：只由样本编号和采样率推导（``样本号 / sample_rate_hz``），不碰墙钟。
 
@@ -23,7 +28,7 @@ from types import MappingProxyType
 
 import numpy as np
 
-CONTRACT_VERSION = "1.0"
+CONTRACT_VERSION = "1.1"
 """当前契约版本；字段或语义变化必须同时升级版本并更新 docs/01 的两张表。"""
 
 EEG_UNIT = "V"

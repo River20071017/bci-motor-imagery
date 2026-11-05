@@ -5,13 +5,13 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 用公开的 EEG 数据按原始采样时序回放，持续判断**空闲 / 左手运动想象 / 右手运动想象**，并把滚动波形、双轨时间轴、火柴人反馈与结构化存档串成一条可复现的处理链。推理过程不读取任务标签或试次时间表。
 
 > **当前状态（2026-11-05，W2）**
-> 契约 1.0 已冻结（`contract-1.0`，36 个导出），见 [docs/01](docs/01_接口约定_1.0.md)。
-> **数据源已实现**：`sources/input.py`（EDF → 内存数组、通道名规范化、标注隔离）与
-> `sources/replay.py`（1 倍速分块、暂停/继续/停止），11 条集成用例见
-> `tests/integration/test_replay.py`。
+> 契约 **1.1**（1.0 冻结于 2026-11-03，1.1 解耦数据源；36 个导出），见 [docs/01](docs/01_接口约定_1.0.md)。
+> **数据源已实现**：`sources/input.py`（统一 MNE 读取：EDF/BDF/GDF/EEGLAB/BrainVision/FIF；通道别名表；
+> 可选显式重采样；标注隔离）与 `sources/replay.py`（1 倍速分块、暂停/继续/停止），集成用例见
+> `tests/integration/test_replay.py`、`tests/integration/test_source_layer.py`。
 > **A 的预处理已实现**：`processing/quality.py` + `processing/filters.py`（模型通道质量门、9 通道均值参考、两路因果滤波、3 s 预热）。
 > **B 的离线链路已实现**：`processing/windows.py`、`processing/features.py`、`training/`、`decoding/`；
-> 当前 92 条测试全绿，训练/评估命令见 [training/README.md](training/README.md)。
+> 当前 99 条测试全绿，训练/评估命令见 [training/README.md](training/README.md)。
 > `runtime/`、`ui/`、`outputs/`、`evaluation/`、`packaging/` 仍是空占位，**应用还不能运行**；
 > 已完成项、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
 
@@ -57,8 +57,8 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | 部分 | 状态 | 说明 |
 | --- | --- | --- |
 | 目录与模块边界 | ✅ 完成 | `src/eeg_core` + `src/eeg_app` 分层，`contracts` 独立成包 |
-| 接口契约 1.0 | ✅ 已冻结（2026-11-03） | 36 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
-| 契约测试与其余文档 | 🟡 部分完成 | 契约 25 + 回放 11 + B 侧 39 + mock 2 + 分层 4 + 质量 6 + 封存 5 = 92 条；docs 00 已补，02–04、06、07 仍是空占位 |
+| 接口契约 1.1 | ✅ 1.0 冻结于 2026-11-03；1.1 只删 `SourceConfig.channel_count` | 36 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
+| 契约测试与其余文档 | 🟡 部分完成 | 契约 25 + 回放 11 + B 侧 39 + mock 2 + 分层 4 + 质量 6 + 封存 5 + 数据源 7 = 99 条；docs 00 已补，02–04、06、07 仍是空占位 |
 | 数据读取与回放 | 🟡 部分完成 | `sources/` 已实现 EDF 读取与 1 倍速回放（含暂停/继续/停止）；`runtime/` 为空占位 |
 | 处理与解码 | 🟡 离线可跑 | A 的质量/因果滤波 + B 的分窗/特征/LDA/决策已实现；`app.py`/`runtime` 未接线，应用还不能运行 |
 | 界面 | ⬜ 未开始 | `ui/` 为空占位 |
@@ -67,7 +67,7 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | 工程配置 | 🟡 基本可用 | `pyproject.toml` 与 `requirements.txt` 已填（pytest 已设 `pythonpath=src`）；CI 待补 |
 
 > `app.py`、`runtime/`、`ui/`、`outputs/` 仍是空占位，启动命令会失败；`decoding/` 与 `training/`
-> 已能离线训练/评估，但还没接进应用。测试可直接运行 `python -m pytest`（当前 87 条）。
+> 已能离线训练/评估，但还没接进应用。测试可直接运行 `python -m pytest`（当前 99 条）。
 
 ## 3. 功能范围（P0）
 
@@ -91,7 +91,7 @@ P0 共 11 项功能，全部完成后才进入验收；P1（网络流、LSL、�
 
 | 编号 | 要求 |
 | --- | --- |
-| N01 | 64 通道 / 160 Hz 输入，固定候选通道，8 通道 10 秒波形 |
+| N01 | 任意通道数的记录（须含 9 个模型通道）/ 目标 160 Hz，8 通道 10 秒波形 |
 | N02 | 分窗齐备后单窗处理耗时 P95 ≤ 100 ms |
 | N03 | 数据块释放到界面结果的附加延迟 P95 ≤ 300 ms |
 | N04 | 波形刷新 ≥ 15 次/秒（目标 20 次/秒） |

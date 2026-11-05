@@ -144,17 +144,26 @@ def _require_bands(values: object) -> tuple[tuple[float, float], ...]:
 
 @dataclass(frozen=True, slots=True)
 class SourceConfig:
-    """数据源与回放：记录要求（采样率、通道）+ 供数节奏。
+    """**算法**对数据的要求 + 回放节奏；不描述数据源本身。
+
+    这里只回答「算法要什么」：目标采样率、模型需要的通道、应用自己做的重参考策略、
+    回放速度与分块时长。数据源有多少通道、通道叫什么、什么格式、是哪个设备，
+    由 ``SourceInfo`` 在运行时自描述（契约 1.1 起不再有 ``channel_count``）。
+
+    ``sample_rate_hz`` 是**算法目标采样率**：滤波器系数、窗长/步长样本数都按它算。
+    数据源采样率不同时，由数据源层显式重采样到它并记录在 ``SourceInfo.device_metadata``，
+    不能靠改配置来“凑”不同设备。
 
     ``reference_policy`` 是**应用自己**要做的重参考（训练与运行必须一致），
     不是文件里写的参考方式——后者在 ``SourceInfo.reference``，缺失时记为「未提供」。
-    不要把本字段传给 ``check_compatible(required_reference=...)`` 去核对文件头，
-    两件事含义不同。取值只能来自 :data:`REFERENCE_POLICIES`；首版用
-    ``model_channel_average``，由 A 的 ``FilterBank`` 实现，训练必须调用同一份实现。
+    取值只能来自 :data:`REFERENCE_POLICIES`；首版用 ``model_channel_average``，
+    由 A 的 ``FilterBank`` 实现，训练必须调用同一份实现。
+
+    ``model_channels`` 是**模型要求**的通道名；记录缺任何一个都由 ``check_compatible``
+    显式报错，不是 ``EEGChunk`` 的构造错误。改名/别名由数据源层的别名表处理。
     """
 
     sample_rate_hz: float = 160.0
-    channel_count: int = 64
     model_channels: tuple[str, ...] = MODEL_CHANNELS
     reference_policy: str = "model_channel_average"
     replay_speed: float = 1.0
@@ -166,14 +175,7 @@ class SourceConfig:
             "sample_rate_hz",
             _require_real(self.sample_rate_hz, "sample_rate_hz", strictly_positive=True),
         )
-        channel_count = _require_int(self.channel_count, "channel_count", minimum=1)
-        object.__setattr__(self, "channel_count", channel_count)
         model_channels = _require_channels(self.model_channels, "model_channels")
-        if len(model_channels) > channel_count:
-            raise ConfigError(
-                "model_channels 数量不能超过 channel_count，"
-                f"收到 {len(model_channels)} > {channel_count}"
-            )
         object.__setattr__(self, "model_channels", model_channels)
         object.__setattr__(
             self, "reference_policy", _require_text(self.reference_policy, "reference_policy")
@@ -399,17 +401,19 @@ class AppConfig:
 
     @property
     def preprocessing_hash(self) -> str:
-        """**只覆盖信号路径**的指纹：采样率、通道、参考、滤波、窗、频带。
+        """**只覆盖信号路径**的指纹：采样率、模型通道、参考、滤波、窗、频带。
 
         与 :attr:`config_hash` 的区别：界面刷新率、环形缓冲、回放速度、分块大小、
         门限有效期等变化**不会**改变它。T02 用它比对模型包，避免“改个 UI 参数就
         报模型不兼容”，也避免“改个块长就要求重训”。``DecisionConfig`` 不参与，
         因为门限允许按受试者在验证阶段调整，实际取值由模型包记录。
+
+        数据源通道数不在这里：记录有多少通道由 ``SourceInfo`` 自描述，换 22 导设备
+        不会改变算法指纹。
         """
         payload = {
             "source": {
                 "sample_rate_hz": self.source.sample_rate_hz,
-                "channel_count": self.source.channel_count,
                 "model_channels": list(self.source.model_channels),
                 "reference_policy": self.source.reference_policy,
             },
@@ -431,4 +435,4 @@ class AppConfig:
 
 
 DEFAULT_CONFIG = AppConfig()
-"""初始工程配置；契约 1.0 已冻结——改结构/语义须升 ``CONTRACT_VERSION``，改数值只记 ``config_hash``。"""
+"""初始工程配置；契约 1.1——改结构/语义须升 ``CONTRACT_VERSION``，改数值只记 ``config_hash``。"""

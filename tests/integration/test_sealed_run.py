@@ -25,12 +25,12 @@ def test_load_edf_rejects_sealed_run_by_default() -> None:
 
 def test_load_edf_allows_sealed_run_only_with_flag() -> None:
     # 过了封存闸门，才轮到“文件不存在”；说明 allow_sealed=True 确实放行。
-    with pytest.raises(ContractError, match="找不到 EDF 文件"):
+    with pytest.raises(ContractError, match="找不到记录文件"):
         load_edf(MISSING, allow_sealed=True)
 
 
 def test_open_run_is_not_sealed() -> None:
-    with pytest.raises(ContractError, match="找不到 EDF 文件"):
+    with pytest.raises(ContractError, match="找不到记录文件"):
         load_edf(MISSING.with_name("S001R04.edf"))
 
 

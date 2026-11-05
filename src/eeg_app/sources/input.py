@@ -1,7 +1,16 @@
-"""把一条 EDF+ 记录读成内存里的数据：样本、档案卡、参考标注。
+"""统一数据源层：文件 → 内存里的样本、档案卡、参考标注。
 
 本模块只管「文件 → 数组」，不管节奏；1 倍速按块供数在 :mod:`eeg_app.sources.replay`。
-两条纪律在这里落地：
+数据源层只做四件事，每件都可以单独替换/记录：
+
+1. **读格式**：按扩展名分派到 ``mne.io.read_raw_*``（EDF/BDF/GDF/EEGLAB/BrainVision/FIF），
+   不为每种设备写一个适配器；
+2. **改通道名**：一张别名表（``aliases``）+ 通用规范化，不写设备分支；
+3. **可选重采样**：只有显式传 ``resample_to`` 才做，并把原采样率/目标采样率写进
+   ``SourceInfo.device_metadata``——用于把 250 Hz 的 BCIC IV 对齐到算法目标 160 Hz；
+4. **单位**：MNE 读出即伏，本层不再换算。
+
+三条纪律：
 
 * **单位**：读出后立刻是伏（``EEG_UNIT``），下游不再换算；界面显示时自己乘 ``1e6``。
 * **标签隔离**：EEG 样本进 :attr:`Recording.samples`，原始标注单独进
@@ -9,16 +18,16 @@
 * **封存集**：run 12 是最终测试集，加载层默认拒绝；只有显式 ``allow_sealed=True``
   （命令行 ``--allow-sealed``）才能读，避免调参时不小心看到封存数据。
 
-通道名按 MNE ``mne.datasets.eegbci.standardize`` 的同一规则规范成 10-20 写法
+通道名默认按 MNE ``mne.datasets.eegbci.standardize`` 的同一规则规范成 10-20 写法
 （``Fc5.`` → ``FC5``、``Fcz.`` → ``FCz``），保证 ``FC3/FCz/FC4/C3/Cz/C4/CP3/CPz/CP4``
-这九个模型通道能被 ``SourceInfo.check_compatible`` 认出来。
+这九个模型通道能被 ``SourceInfo.check_compatible`` 认出来；其它设备通过 ``aliases`` 表补映射。
 """
 
 from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -29,8 +38,12 @@ __all__ = [
     "SEALED_RUNS",
     "SOURCE_ID",
     "Recording",
+    "apply_channel_aliases",
     "load_edf",
+    "load_file",
     "load_recording",
+    "read_raw",
+    "recording_from_raw",
     "recording_id_of",
     "recording_path",
     "standardize_channel_names",
@@ -99,6 +112,57 @@ def recording_id_of(path: str | Path) -> str:
     if not _RECORDING_ID.match(stem):
         raise ContractError(f"文件名不符合 S###R## 约定，无法确定记录编号：{Path(path).name}")
     return stem
+
+
+_READERS: dict[str, str] = {
+    ".edf": "read_raw_edf",
+    ".bdf": "read_raw_bdf",
+    ".gdf": "read_raw_gdf",
+    ".set": "read_raw_eeglab",
+    ".fdt": "read_raw_eeglab",
+    ".vhdr": "read_raw_brainvision",
+    ".fif": "read_raw_fif",
+    ".cnt": "read_raw_cnt",
+}
+"""扩展名 → ``mne.io`` 读取函数名；数据格式靠 MNE，不靠自写解析。"""
+
+
+def read_raw(path: str | Path, *, preload: bool = True) -> object:
+    """按扩展名用 MNE 读取任意受支持格式，返回 ``mne.io.BaseRaw``。
+
+    这是数据源层的**唯一读入口**：换数据集只加一行扩展名映射，不写新适配器。
+    ``mne`` 只在真正读文件时才导入，``sources`` 的其余部分（分块、节奏、测试）不依赖它。
+    """
+    file_path = Path(path)
+    suffix = file_path.suffix.lower()
+    reader = _READERS.get(suffix)
+    if reader is None:
+        supported = "、".join(sorted(_READERS))
+        raise ContractError(f"不支持的文件格式 {suffix or '（无扩展名）'}；支持：{supported}")
+    if not file_path.is_file():
+        raise ContractError(f"找不到记录文件：{file_path}")
+
+    try:
+        import mne
+    except ImportError as exc:
+        raise ContractError("读取记录需要 mne：请先安装 requirements.txt 中的依赖") from exc
+    except Exception as exc:  # noqa: BLE001 - 配置目录不可写等初始化失败
+        raise ContractError(f"无法初始化 mne（依赖缺失或配置目录不可写）：{exc}") from exc
+
+    try:
+        return getattr(mne.io, reader)(file_path, preload=preload, verbose="ERROR")
+    except Exception as exc:
+        raise ContractError(f"读取失败：{file_path.name}：{exc}") from exc
+
+
+def apply_channel_aliases(names: object, aliases: dict[str, str] | None = None) -> tuple[str, ...]:
+    """先按别名表改名，再走通用规范化；别名表只做映射，不做单位/重采样。"""
+    if isinstance(names, (str, bytes)):
+        raise ContractError("通道名必须是序列，不能是单个字符串")
+    raw_names = tuple(str(name) for name in names)  # type: ignore[arg-type]
+    if aliases:
+        raw_names = tuple(str(aliases.get(name, name)) for name in raw_names)
+    return standardize_channel_names(raw_names)
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,63 +234,121 @@ class Recording:
         return tuple(seen)
 
 
+def recording_from_raw(
+    raw: object,
+    *,
+    source_id: str,
+    recording_id: str,
+    subject_id: str | None = None,
+    run: str | None = None,
+    aliases: dict[str, str] | None = None,
+    resample_to: float | None = None,
+    path: str | Path | None = None,
+) -> Recording:
+    """把 MNE ``Raw`` 变成契约 :class:`Recording`：别名 → 可选重采样 → 样本/标注。
+
+    重采样是**显式步骤**：只有 ``resample_to`` 与原始采样率不同才执行，并把
+    ``original_sample_rate_hz`` / ``resampled_to_hz`` 写进 ``SourceInfo.device_metadata``，
+    让 manifest 能追到“这条记录被重采样过”。单位由 MNE 保证为伏。
+    """
+    original_rate = float(raw.info["sfreq"])  # type: ignore[attr-defined]
+    if resample_to is not None:
+        target = float(resample_to)
+        if not np.isfinite(target) or target <= 0:
+            raise ContractError(f"resample_to 必须是有限正数，收到 {resample_to!r}")
+        if abs(original_rate - target) > 1e-9:
+            raw = raw.copy().resample(target, verbose="ERROR")  # type: ignore[attr-defined]
+
+    channel_names = apply_channel_aliases(raw.ch_names, aliases)
+    if tuple(raw.ch_names) != channel_names:  # type: ignore[attr-defined]
+        raw.rename_channels(dict(zip(raw.ch_names, channel_names, strict=True)))
+    sample_rate_hz = float(raw.info["sfreq"])  # type: ignore[attr-defined]
+    samples = np.asarray(raw.get_data(), dtype=np.float64)
+
+    metadata = {"reader": "mne", "original_sample_rate_hz": f"{original_rate:g}"}
+    if abs(sample_rate_hz - original_rate) > 1e-9:
+        metadata["resampled_to_hz"] = f"{sample_rate_hz:g}"
+
+    info = SourceInfo(
+        source_id=source_id,
+        recording_id=recording_id,
+        sample_rate_hz=sample_rate_hz,
+        channel_names=channel_names,
+        reference=None,
+        subject_id=subject_id,
+        run=run,
+        n_samples=int(samples.shape[1]),
+        device_metadata=metadata,
+        path=str(path) if path is not None else None,
+    )
+    return Recording(
+        info=info,
+        samples=samples,
+        markers=_read_markers(raw, record_id=recording_id, sample_rate_hz=sample_rate_hz),
+        path=Path(path) if path is not None else None,
+    )
+
+
+def load_file(
+    path: str | Path,
+    *,
+    source_id: str = SOURCE_ID,
+    recording_id: str | None = None,
+    subject_id: str | None = None,
+    run: str | None = None,
+    aliases: dict[str, str] | None = None,
+    resample_to: float | None = None,
+    with_sha256: bool = True,
+    allow_sealed: bool = False,
+) -> Recording:
+    """读任意 MNE 支持格式（EDF/BDF/GDF/EEGLAB/BrainVision/FIF）。
+
+    格式由扩展名分派；``aliases`` 补设备命名；``resample_to`` 把数据对齐到算法目标采样率。
+    封存集判断仍在读文件之前：记录号命中 ``SEALED_RUNS`` 时默认拒绝。
+    """
+    file_path = Path(path)
+    record_id = recording_id or file_path.stem
+    _ensure_not_sealed(record_id, allow_sealed)
+    raw = read_raw(file_path)
+    recording = recording_from_raw(
+        raw,
+        source_id=source_id,
+        recording_id=record_id,
+        subject_id=subject_id,
+        run=run,
+        aliases=aliases,
+        resample_to=resample_to,
+        path=file_path,
+    )
+    if with_sha256:
+        recording = replace(recording, sha256=_sha256_of(file_path))
+    return recording
+
+
 def load_edf(
     path: str | Path,
     *,
     source_id: str = SOURCE_ID,
     with_sha256: bool = True,
     allow_sealed: bool = False,
+    aliases: dict[str, str] | None = None,
+    resample_to: float | None = None,
 ) -> Recording:
-    """读一条 EDF+ 记录，返回 :class:`Recording`；失败时抛 :class:`ContractError`。
+    """EDF 便捷入口（等价于 ``load_file``，并沿用 ``S###R##`` 的封存规则）。
 
-    ``mne`` 只在真正读文件时才导入：``sources`` 的其余部分（分块、节奏、测试）不依赖它。
+    返回 :class:`Recording`；失败时抛 :class:`ContractError`。``mne`` 只在真正读文件时导入。
     文件头里没写参考方式，``SourceInfo.reference`` 就留 ``None``（显示「未提供」），不猜。
 
     ``run 12`` 属于封存测试集：默认在**读文件之前**就拒绝，只有 ``allow_sealed=True``
     （命令行 ``--allow-sealed``）才放行，用来做一次性最终评估。
     """
-    file_path = Path(path)
-    record_id = recording_id_of(file_path)
-    _ensure_not_sealed(record_id, allow_sealed)
-    if not file_path.is_file():
-        raise ContractError(f"找不到 EDF 文件：{file_path}")
-
-    try:
-        import mne
-    except ImportError as exc:
-        raise ContractError("读取 EDF 需要 mne：请先安装 requirements.txt 中的依赖") from exc
-    except Exception as exc:  # noqa: BLE001 - 配置目录不可写等初始化失败
-        raise ContractError(f"无法初始化 mne（依赖缺失或配置目录不可写）：{exc}") from exc
-
-    try:
-        raw = mne.io.read_raw_edf(file_path, preload=True, verbose="ERROR")
-    except Exception as exc:
-        raise ContractError(f"EDF 读取失败：{file_path.name}：{exc}") from exc
-
-    channel_names = standardize_channel_names(raw.ch_names)
-    raw.rename_channels(dict(zip(raw.ch_names, channel_names, strict=True)))
-
-    samples = np.asarray(raw.get_data(), dtype=np.float64)
-    sample_rate_hz = float(raw.info["sfreq"])
-
-    match = _RECORDING_ID.match(record_id)
-    info = SourceInfo(
+    return load_file(
+        path,
         source_id=source_id,
-        recording_id=record_id,
-        sample_rate_hz=sample_rate_hz,
-        channel_names=channel_names,
-        reference=None,
-        subject_id=match.group("subject") if match else None,
-        run=str(int(match.group("run"))) if match else None,
-        n_samples=int(samples.shape[1]),
-    )
-
-    return Recording(
-        info=info,
-        samples=samples,
-        markers=_read_markers(raw, record_id=record_id, sample_rate_hz=sample_rate_hz),
-        path=file_path,
-        sha256=_sha256_of(file_path) if with_sha256 else None,
+        with_sha256=with_sha256,
+        allow_sealed=allow_sealed,
+        aliases=aliases,
+        resample_to=resample_to,
     )
 
 

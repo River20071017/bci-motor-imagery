@@ -5,7 +5,7 @@
 
 * 首块 ``seq=0`` 且 ``discontinuity=True``，之后 ``seq`` 严格 +1；
 * 未标间断的块 ``start_sample`` 必须等于上一块 ``end_sample``；
-* 块长只由 ``SourceConfig.target_chunk_ms`` 决定（160 Hz × 50 ms = 8 样本），
+* 块长只由 ``SourceConfig.target_chunk_ms`` 决定（目标采样率 × 50 ms），
   校验器不检查块长，块长换一下也得过（T05）；
 * ``released_monotonic_ms`` 记这一块**真正交出去**的会话单调时钟，只用于算延迟。
 
@@ -43,7 +43,6 @@ from eeg_core.contracts import (
     DEFAULT_CONFIG,
     AppConfig,
     EEGChunk,
-    IncompatibleSourceError,
     SourceInfo,
 )
 
@@ -75,15 +74,16 @@ Windows 上 ``Condition.wait()`` / ``Event.wait()`` 的超时会被 15.6 ms 系�
 
 
 def chunk_samples_for(config: AppConfig) -> int:
-    """按 ``target_chunk_ms`` 算每块样本数：160 Hz × 50 ms = 8，至少 1。"""
+    """按 ``target_chunk_ms`` 算每块样本数：目标采样率 × 50 ms，至少 1。"""
     return max(1, int(round(config.source.target_chunk_ms / 1000.0 * config.source.sample_rate_hz)))
 
 
 class ReplaySource:
     """一条记录 + 一份配置 = 一个能按 1 倍速供数的数据源。
 
-    构造时做完全部兼容性检查（T02）：缺模型通道、采样率不符、通道数不符都抛
+    构造时做完全部兼容性检查（T02）：缺模型通道、采样率不符都抛
     :class:`IncompatibleSourceError` 并一次列出全部原因，不带着不兼容的记录往下跑。
+    通道数不检查：记录有多少通道是数据源自己的事（契约 1.1），算法只关心模型通道。
     参考方式（``reference_policy``）不在这里处理——那是处理层的重参考，不是文件头里的说法。
     """
 
@@ -100,15 +100,6 @@ class ReplaySource:
             required_channels=config.source.model_channels,
             sample_rate_hz=config.source.sample_rate_hz,
         )
-        expected_channels = config.source.channel_count
-        if len(info.channel_names) != expected_channels:
-            raise IncompatibleSourceError(
-                info.recording_id,
-                [
-                    f"通道数不符：记录为 {len(info.channel_names)}，"
-                    f"要求 {expected_channels}（N01）"
-                ],
-            )
 
         samples = recording.samples
         size = chunk_samples if chunk_samples is not None else chunk_samples_for(config)

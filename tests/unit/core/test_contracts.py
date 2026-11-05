@@ -377,7 +377,8 @@ def test_decision_states_are_exactly_six() -> None:
 def test_config_defaults_are_the_frozen_baseline() -> None:
     config = DEFAULT_CONFIG
     assert config.source.sample_rate_hz == 160.0
-    assert config.source.channel_count == 64
+    assert len(config.source.model_channels) == 9
+    assert not hasattr(config.source, "channel_count"), "契约 1.1 起通道数属于数据源，不进配置"
     assert config.source.reference_policy == "model_channel_average"
     assert config.source.reference_policy in REFERENCE_POLICIES
     assert (config.processing.window_sec, config.processing.step_sec) == (2.0, 0.25)
