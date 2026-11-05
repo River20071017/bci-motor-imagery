@@ -13,7 +13,25 @@
 依赖方向：``processing`` 只依赖 ``contracts``，不反向依赖 ``eeg_app`` 层。
 """
 
+from .features import FEATURE_DIM, log_variance_features
 from .filters import FilterBank
 from .quality import QualityChecker
+from .windows import (
+    hop_samples,
+    is_window_usable,
+    iter_window_ranges,
+    required_warmup_samples,
+    window_samples,
+)
 
-__all__ = ["FilterBank", "QualityChecker"]
+__all__ = [
+    "FEATURE_DIM",
+    "FilterBank",
+    "QualityChecker",
+    "hop_samples",
+    "is_window_usable",
+    "iter_window_ranges",
+    "log_variance_features",
+    "required_warmup_samples",
+    "window_samples",
+]
