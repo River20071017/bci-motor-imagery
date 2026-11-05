@@ -1,4 +1,4 @@
-"""逐块质量检查；只观察原始样本，不修改或清洗输入。"""
+"""逐块质量检查；只观察模型通道的原始样本，不修改或清洗输入。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,11 @@ def _threshold(value: float, name: str, *, allow_zero: bool = False) -> float:
 
 
 class QualityChecker:
-    """检查所有输入通道，并检查配置中的必需模型通道是否齐全。
+    """检查配置里的模型通道，并确认必需通道一个不缺。
+
+    检查范围是 ``config.source.model_channels``（默认 9 个中央区通道），不是全部输入通道：
+    重参考与特征都只用模型通道，其余通道的眼动/肌电伪迹不该把整块判成无效——否则干净的
+    中央区数据会被挡在算法之外（S003/S009 实测）。非模型通道照原样随块传递，不检查。
 
     必须显式提供尚未冻结的三个质量阈值，不能把微伏直接当伏传入：
 
@@ -58,6 +62,7 @@ class QualityChecker:
         config: AppConfig = DEFAULT_CONFIG,
     ) -> None:
         self.config = config
+        self.model_channels = tuple(config.source.model_channels)
         self.amplitude_limit_v = _threshold(amplitude_limit_v, "amplitude_limit_v")
         self.flatline_sec = _threshold(flatline_sec, "flatline_sec")
         self.flatline_tolerance_v = _threshold(
@@ -106,37 +111,44 @@ class QualityChecker:
         if chunk.sample_rate_hz != self.config.source.sample_rate_hz:
             reasons.add("interval_error")
 
-        missing = tuple(
-            name for name in self.config.source.model_channels if name not in chunk.channel_names
-        )
+        missing = tuple(name for name in self.model_channels if name not in chunk.channel_names)
         if missing:
             reasons.add("missing_channel")
             bad_channels.update(missing)
 
-        finite = np.isfinite(chunk.samples)
-        non_finite = ~finite.all(axis=1)
-        if non_finite.any():
-            reasons.add("non_finite")
-            bad_channels.update(
-                name for name, bad in zip(chunk.channel_names, non_finite) if bad
-            )
-        amplitude = (finite & (np.abs(chunk.samples) > self.amplitude_limit_v)).any(axis=1)
-        if amplitude.any():
-            reasons.add("amplitude")
-            bad_channels.update(
-                name for name, bad in zip(chunk.channel_names, amplitude) if bad
-            )
+        # 只对模型通道做样本级检查：重参考与特征都只消费它们，其余通道的伪迹不该拦下
+        # 整块。缺失通道时只检查还在的模型通道，报告仍能说明哪些通道不可用。
+        present = tuple(name for name in self.model_channels if name not in missing)
+        model_samples = (
+            chunk.samples[[chunk.channel_index(name) for name in present]] if present else None
+        )
+        if model_samples is not None:
+            finite = np.isfinite(model_samples)
+            non_finite = ~finite.all(axis=1)
+            if non_finite.any():
+                reasons.add("non_finite")
+                bad_channels.update(
+                    name for name, bad in zip(present, non_finite, strict=True) if bad
+                )
+            amplitude = (finite & (np.abs(model_samples) > self.amplitude_limit_v)).any(axis=1)
+            if amplitude.any():
+                reasons.add("amplitude")
+                bad_channels.update(
+                    name for name, bad in zip(present, amplitude, strict=True) if bad
+                )
 
         # 不跨断点或不合格数据累计常量段，也不让 NaN/Inf 进入差分运算。
         if chunk.discontinuity:
             self._last_values = None
             self._constant_counts = None
         if not reasons:
-            flatline = self._check_flatline(chunk)
+            # reasons 为空说明模型通道一个不缺，model_samples 已经就位。
+            assert model_samples is not None
+            flatline = self._check_flatline(model_samples, chunk.sample_rate_hz)
             if flatline.any():
                 reasons.add("flatline")
                 bad_channels.update(
-                    name for name, bad in zip(chunk.channel_names, flatline) if bad
+                    name for name, bad in zip(present, flatline, strict=True) if bad
                 )
 
         if reasons:
@@ -156,15 +168,18 @@ class QualityChecker:
         self._expected_start = chunk.end_sample
         return QualityReport.ok()
 
-    def _check_flatline(self, chunk: EEGChunk) -> np.ndarray:
-        """只保留每通道末值和连续样本数，不缓存整段数据。"""
-        limit = max(2, math.ceil(self.flatline_sec * chunk.sample_rate_hz))
+    def _check_flatline(self, samples: np.ndarray, sample_rate_hz: float) -> np.ndarray:
+        """只保留每通道末值和连续样本数，不缓存整段数据。
+
+        ``samples`` 按 ``model_channels`` 的顺序排列，状态数组与它一一对应。
+        """
+        limit = max(2, math.ceil(self.flatline_sec * sample_rate_hz))
         if self._last_values is None:
-            self._last_values = chunk.samples[:, 0].copy()
-            self._constant_counts = np.zeros(chunk.n_channels, dtype=np.int64)
+            self._last_values = samples[:, 0].copy()
+            self._constant_counts = np.zeros(samples.shape[0], dtype=np.int64)
         counts = self._constant_counts
-        flatline = np.zeros(chunk.n_channels, dtype=bool)
-        for values in chunk.samples.T:
+        flatline = np.zeros(samples.shape[0], dtype=bool)
+        for values in samples.T:
             unchanged = np.abs(values - self._last_values) <= self.flatline_tolerance_v
             counts = np.where(unchanged, np.minimum(counts + 1, limit), 1)
             flatline |= counts >= limit

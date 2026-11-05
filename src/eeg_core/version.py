@@ -11,5 +11,9 @@ from __future__ import annotations
 
 __all__ = ["PIPELINE_VERSION"]
 
-PIPELINE_VERSION = "mi-lda-v1"
-"""首版：A 的 8–13/13–30 Hz 因果滤波 + B 的 2 s 窗 18 维对数方差 + 三状态 LDA。"""
+PIPELINE_VERSION = "mi-lda-v2"
+"""v2：质量门只判 9 个模型通道（v1 判全部输入通道），阈值标定为 500 µV / 1 s / 1 µV。
+
+首版是 v1：A 的 8–13/13–30 Hz 因果滤波 + B 的 2 s 窗 18 维对数方差 + 三状态 LDA。
+范围变化是**代码行为**、配置哈希覆盖不到，所以必须在这里升版本，旧模型包应被拒绝加载。
+"""

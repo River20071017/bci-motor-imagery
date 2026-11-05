@@ -1,7 +1,7 @@
 """处理链：质量与因果滤波归 A，分窗与特征归 B。
 
 ``quality.py`` / ``filters.py``（A 维护）
-    ``QualityChecker`` 检查原始块；``FilterBank.process`` 串联质量、模型通道平均参考与
+    ``QualityChecker`` 只检查原始块里的模型通道；``FilterBank.process`` 串联质量、模型通道平均参考与
     两路 Butterworth SOS 因果滤波，返回定位元数据、独立质量报告和两路数组，不创建重复
     ``seq`` 的 ``EEGChunk``。间断或质量异常清理本模块历史并重新预热；
     ``ResetReason.PAUSE_RESUME`` 保留滤波状态与已处理历史。

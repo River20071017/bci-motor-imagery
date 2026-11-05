@@ -6,6 +6,8 @@
 * **单位**：读出后立刻是伏（``EEG_UNIT``），下游不再换算；界面显示时自己乘 ``1e6``。
 * **标签隔离**：EEG 样本进 :attr:`Recording.samples`，原始标注单独进
   :attr:`Recording.markers`。前者喂在线路径，后者只给参考轨与评估用（PRD §5.3）。
+* **封存集**：run 12 是最终测试集，加载层默认拒绝；只有显式 ``allow_sealed=True``
+  （命令行 ``--allow-sealed``）才能读，避免调参时不小心看到封存数据。
 
 通道名按 MNE ``mne.datasets.eegbci.standardize`` 的同一规则规范成 10-20 写法
 （``Fc5.`` → ``FC5``、``Fcz.`` → ``FCz``），保证 ``FC3/FCz/FC4/C3/Cz/C4/CP3/CPz/CP4``
@@ -24,6 +26,7 @@ import numpy as np
 from eeg_core.contracts import ContractError, ReferenceMarker, SourceInfo
 
 __all__ = [
+    "SEALED_RUNS",
     "SOURCE_ID",
     "Recording",
     "load_edf",
@@ -36,8 +39,22 @@ __all__ = [
 SOURCE_ID = "physionet-eegmmidb"
 """``EEGChunk.source_id`` 的取值，对应 README §7.1 的数据集。"""
 
+SEALED_RUNS = frozenset({"12"})
+"""封存测试 run：默认拒绝加载，必须显式 ``allow_sealed=True``。见 data/eegmmidb/README.md §9。"""
+
 _RECORDING_ID = re.compile(r"^(?P<subject>S\d{3})R(?P<run>\d{2})$")
 """PhysioNet 的文件名约定：``S001R04`` → 受试者 ``S001``、run ``4``。"""
+
+
+def _ensure_not_sealed(record_id: str, allow_sealed: bool) -> None:
+    """``record_id`` 属于封存 run 时拒绝；``allow_sealed`` 只给一次性最终评估用。"""
+    match = _RECORDING_ID.match(record_id)
+    if allow_sealed or match is None or match.group("run") not in SEALED_RUNS:
+        return
+    raise ContractError(
+        f"{record_id} 是封存测试集（run 12）：加载它就等于看到最终测试数据，不能再用来调参。"
+        "确认已经冻结、并且只跑这一次时，显式传 allow_sealed=True（命令行 --allow-sealed）。"
+    )
 
 
 def standardize_channel_names(names: object) -> tuple[str, ...]:
@@ -158,13 +175,19 @@ def load_edf(
     *,
     source_id: str = SOURCE_ID,
     with_sha256: bool = True,
+    allow_sealed: bool = False,
 ) -> Recording:
     """读一条 EDF+ 记录，返回 :class:`Recording`；失败时抛 :class:`ContractError`。
 
     ``mne`` 只在真正读文件时才导入：``sources`` 的其余部分（分块、节奏、测试）不依赖它。
     文件头里没写参考方式，``SourceInfo.reference`` 就留 ``None``（显示「未提供」），不猜。
+
+    ``run 12`` 属于封存测试集：默认在**读文件之前**就拒绝，只有 ``allow_sealed=True``
+    （命令行 ``--allow-sealed``）才放行，用来做一次性最终评估。
     """
     file_path = Path(path)
+    record_id = recording_id_of(file_path)
+    _ensure_not_sealed(record_id, allow_sealed)
     if not file_path.is_file():
         raise ContractError(f"找不到 EDF 文件：{file_path}")
 
@@ -186,7 +209,6 @@ def load_edf(
     samples = np.asarray(raw.get_data(), dtype=np.float64)
     sample_rate_hz = float(raw.info["sfreq"])
 
-    record_id = recording_id_of(file_path)
     match = _RECORDING_ID.match(record_id)
     info = SourceInfo(
         source_id=source_id,
@@ -225,10 +247,18 @@ def load_recording(
     *,
     source_id: str = SOURCE_ID,
     with_sha256: bool = True,
+    allow_sealed: bool = False,
 ) -> Recording:
-    """``recording_path`` + ``load_edf`` 的合体，演示与集成测试用。"""
+    """``recording_path`` + ``load_edf`` 的合体，演示与集成测试用。
+
+    与 :func:`load_edf` 一样，``run 12`` 默认被拒；``allow_sealed=True`` 才放行。
+    """
+    _ensure_not_sealed(record_id.strip(), allow_sealed)
     return load_edf(
-        recording_path(data_root, record_id), source_id=source_id, with_sha256=with_sha256
+        recording_path(data_root, record_id),
+        source_id=source_id,
+        with_sha256=with_sha256,
+        allow_sealed=allow_sealed,
     )
 
 
