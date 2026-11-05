@@ -120,11 +120,11 @@ def evaluate_subject(
     }
 
 
-def _load_recording(data_root: Path, part_file: Path) -> RecordingLike:
+def _load_recording(data_root: Path, part_file: Path, *, allow_sealed: bool) -> RecordingLike:
     """组合根：只有这里接触应用层的 EDF 读取。"""
     from eeg_app.sources.input import load_edf
 
-    return load_edf(data_root / part_file, with_sha256=False)
+    return load_edf(data_root / part_file, with_sha256=False, allow_sealed=allow_sealed)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -135,11 +135,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-root", type=Path, default=Path("data/eegmmidb"))
     parser.add_argument("--splits", type=Path, default=Path("training/splits.json"))
     parser.add_argument("--out", type=Path, default=None, help="可选：把结果写成 JSON")
+    parser.add_argument(
+        "--allow-sealed",
+        action="store_true",
+        help="确认一次性使用封存 run12（--part test）；默认拒绝，跑完不要再改任何东西",
+    )
     args = parser.parse_args(argv)
 
     split = load_split(args.splits)
     part_file = part_file_of(split, args.subject, args.part)
-    recording = _load_recording(args.data_root, part_file)
+    recording = _load_recording(args.data_root, part_file, allow_sealed=args.allow_sealed)
     result = evaluate_subject(
         args.model,
         subject=args.subject,

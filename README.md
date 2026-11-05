@@ -9,9 +9,9 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 > **数据源已实现**：`sources/input.py`（EDF → 内存数组、通道名规范化、标注隔离）与
 > `sources/replay.py`（1 倍速分块、暂停/继续/停止），11 条集成用例见
 > `tests/integration/test_replay.py`。
-> **A 的预处理已实现**：`processing/quality.py` + `processing/filters.py`（全通道质量门、9 通道均值参考、两路因果滤波、3 s 预热）。
+> **A 的预处理已实现**：`processing/quality.py` + `processing/filters.py`（模型通道质量门、9 通道均值参考、两路因果滤波、3 s 预热）。
 > **B 的离线链路已实现**：`processing/windows.py`、`processing/features.py`、`training/`、`decoding/`；
-> 当前 81 条测试全绿，训练/评估命令见 [training/README.md](training/README.md)。
+> 当前 92 条测试全绿，训练/评估命令见 [training/README.md](training/README.md)。
 > `runtime/`、`ui/`、`outputs/`、`evaluation/`、`packaging/` 仍是空占位，**应用还不能运行**；
 > 已完成项、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
 
@@ -58,7 +58,7 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | --- | --- | --- |
 | 目录与模块边界 | ✅ 完成 | `src/eeg_core` + `src/eeg_app` 分层，`contracts` 独立成包 |
 | 接口契约 1.0 | ✅ 已冻结（2026-11-03） | 36 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
-| 契约测试与其余文档 | 🟡 部分完成 | 契约 25 + 回放 11 + B 侧 39 + mock 2 + 分层 4 = 81 条；docs 00 已补，02–04、06、07 仍是空占位 |
+| 契约测试与其余文档 | 🟡 部分完成 | 契约 25 + 回放 11 + B 侧 39 + mock 2 + 分层 4 + 质量 6 + 封存 5 = 92 条；docs 00 已补，02–04、06、07 仍是空占位 |
 | 数据读取与回放 | 🟡 部分完成 | `sources/` 已实现 EDF 读取与 1 倍速回放（含暂停/继续/停止）；`runtime/` 为空占位 |
 | 处理与解码 | 🟡 离线可跑 | A 的质量/因果滤波 + B 的分窗/特征/LDA/决策已实现；`app.py`/`runtime` 未接线，应用还不能运行 |
 | 界面 | ⬜ 未开始 | `ui/` 为空占位 |
@@ -67,7 +67,7 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | 工程配置 | 🟡 基本可用 | `pyproject.toml` 与 `requirements.txt` 已填（pytest 已设 `pythonpath=src`）；CI 待补 |
 
 > `app.py`、`runtime/`、`ui/`、`outputs/` 仍是空占位，启动命令会失败；`decoding/` 与 `training/`
-> 已能离线训练/评估，但还没接进应用。测试可直接运行 `python -m pytest`（当前 81 条）。
+> 已能离线训练/评估，但还没接进应用。测试可直接运行 `python -m pytest`（当前 87 条）。
 
 ## 3. 功能范围（P0）
 
@@ -183,7 +183,7 @@ bci-motor-imagery/
 ├── tests/                        # unit/core、unit/runtime、unit/evaluation、integration
 ├── examples/                     # 合成 EEG 与极小回放样本
 ├── packaging/                    # PyInstaller spec 与构建脚本
-├── scripts/                      # 环境自检、数据下载与校验、演示、锁文件导出
+├── scripts/                      # 环境自检、数据下载与校验、质量阈值标定、mock 评分、演示、锁文件导出
 ├── docs/                         # 00–07 技术文档，project/ 放管理文档
 ├── data/                         # 数据说明（.edf 不入库）
 ├── pyproject.toml                # 包定义、入口点、依赖、pytest/ruff

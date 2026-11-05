@@ -15,8 +15,8 @@
 3. **与模型包一致**：通道表、采样率、滤波、参考方式与门限必须与模型包记录一致，不一致时拒绝运行
    （T02），不能在运行时「凑合换一个」。
 
-待验证数值：对数方差下限与质量阈值目前都是占位值（见 :class:`ProcessingConfig`），等 B 用
-S001–S005 验证后定稿；补字段同样要升契约版本。
+待验证数值：对数方差下限仍是占位值（见 :class:`ProcessingConfig`）；三个质量阈值已于
+2026-11-05 用 S001–S010 标定（``scripts/calibrate_quality.py``）。补字段同样要升契约版本。
 """
 
 from __future__ import annotations
@@ -200,7 +200,8 @@ class ProcessingConfig:
 
     质量阈值单位是**微伏 / 秒**（与界面一致），由 ``app.py`` 组装时乘 ``1e-6`` 传给
     :class:`eeg_core.processing.quality.QualityChecker`（它的参数单位是伏），换算只做一次。
-    三个阈值当前都是**占位值**，等 B 用 S001–S005 验证后定稿；定稿只改数值，不改字段。
+    三个阈值 2026-11-05 用 S001–S010 标定，取值理由见各字段的 docstring 与
+    ``scripts/calibrate_quality.py``；换数据源（尤其量化步长不同）要按同一脚本重标。
     """
 
     window_sec: float = 2.0
@@ -211,13 +212,27 @@ class ProcessingConfig:
     log_variance_floor: float = 1e-12
     warmup_sec: float = 3.0
     amplitude_limit_uv: float = 500.0
-    """单样本绝对值上限（µV），超过判 ``amplitude``。占位值。"""
+    """单样本绝对值上限（µV），超过判 ``amplitude``。
+
+    2026-11-05 用 S001–S010 的 30 条记录标定（``scripts/calibrate_quality.py``）：模型通道
+    每块最大 ``|x|`` 的 p99.99 约 499 µV；500 落在伪迹尾部拐点上（400 µV → 0.66% 无效块，
+    500 → 0.07%，600 → 0.004%），再放宽只是少拦几段本来就不能用的数据。
+    """
 
     flatline_sec: float = 1.0
-    """连续常量段达到此时长（秒）判 ``flatline``。占位值。"""
+    """连续常量段达到此时长（秒）判 ``flatline``。
 
-    flatline_tolerance_uv: float = 0.5
-    """相邻样本绝对差 ≤ 此值（µV）视为未变化；0 表示严格相等。占位值。"""
+    生理信号在 160 Hz 下不会连续 1 s 相邻差不变（30 条记录实测最长 0.49 s，且出现在文件
+    尾补齐）；能跑满 1 s 的只有死通道/卡死通道，检测延迟与 3 s 预热相比可接受。
+    """
+
+    flatline_tolerance_uv: float = 1.0
+    """相邻样本绝对差 ≤ 此值（µV）视为未变化；0 表示严格相等。
+
+    取 EEGMMIDB 的量化步长（相邻样本最小非零差实测 1.000 µV）。容差小于一步量化时
+    “未变化”会退化成“严格相等”：死通道只要在相邻两个码值间抖动（±1 LSB），就永远
+    判不出常量段。换更细量化的数据源时，这里应按该源的 LSB 重新标定。
+    """
 
     def __post_init__(self) -> None:
         window = _require_real(self.window_sec, "window_sec", strictly_positive=True)
