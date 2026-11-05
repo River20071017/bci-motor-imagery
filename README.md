@@ -4,16 +4,16 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 
 用公开的 EEG 数据按原始采样时序回放，持续判断**空闲 / 左手运动想象 / 右手运动想象**，并把滚动波形、双轨时间轴、火柴人反馈与结构化存档串成一条可复现的处理链。推理过程不读取任务标签或试次时间表。
 
-> **当前状态（2026-11-02，W2）**
-> 契约 1.0 的**输入侧、输出侧与配置**已经写完：`EEGChunk`、`WindowRange`、`SourceInfo`、
-> `QualityReport`、`DecisionFrame`、`ChunkStreamGuard`、`AppConfig` 等共 36 个导出，分成
-> `frames / outputs / events / model / protocols / config` 六个文件，见 [docs/01](docs/01_接口约定_1.0.md)。
+> **当前状态（2026-11-05，W2）**
+> 契约 1.0 已冻结（`contract-1.0`，36 个导出），见 [docs/01](docs/01_接口约定_1.0.md)。
 > **数据源已实现**：`sources/input.py`（EDF → 内存数组、通道名规范化、标注隔离）与
 > `sources/replay.py`（1 倍速分块、暂停/继续/停止），11 条集成用例见
 > `tests/integration/test_replay.py`。
-> **其余模块仍是 0 字节占位**（runtime、decoding、ui、outputs、evaluation、packaging）；`training/` 目前只有
-> 数据划分与空 `checkpoints/`；`processing/` 只写了归属说明：质量与因果滤波由 A 实现、分窗与特征由 B 实现，两者都还没写。
-> **应用还不能运行**；已完成的契约、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
+> **A 的预处理已实现**：`processing/quality.py` + `processing/filters.py`（全通道质量门、9 通道均值参考、两路因果滤波、3 s 预热）。
+> **B 的离线链路已实现**：`processing/windows.py`、`processing/features.py`、`training/`、`decoding/`；
+> 当前 81 条测试全绿，训练/评估命令见 [training/README.md](training/README.md)。
+> `runtime/`、`ui/`、`outputs/`、`evaluation/`、`packaging/` 仍是空占位，**应用还不能运行**；
+> 已完成项、剩余任务与卡点见 [docs/05](docs/05_变更记录.md)。
 
 ---
 
@@ -58,16 +58,16 @@ BCI Motor Imagery · 离线 EEG 回放 · 连续三状态解码
 | --- | --- | --- |
 | 目录与模块边界 | ✅ 完成 | `src/eeg_core` + `src/eeg_app` 分层，`contracts` 独立成包 |
 | 接口契约 1.0 | ✅ 已冻结（2026-11-03） | 36 个导出，见 [docs/01](docs/01_接口约定_1.0.md)；`Decoder`/`ResultSink` 按纪律推迟，进度见 [docs/05](docs/05_变更记录.md) |
-| 契约测试与其余文档 | 🟡 部分完成 | 回放集成用例 11 条已入库；`tests/unit/core/test_contracts.py` 与 docs 00、02–04、06、07 仍是空占位 |
+| 契约测试与其余文档 | 🟡 部分完成 | 契约 25 + 回放 11 + B 侧 39 + mock 2 + 分层 4 = 81 条；docs 00 已补，02–04、06、07 仍是空占位 |
 | 数据读取与回放 | 🟡 部分完成 | `sources/` 已实现 EDF 读取与 1 倍速回放（含暂停/继续/停止）；`runtime/` 为空占位 |
-| 处理与解码 | ⬜ 未开始 | `processing/` 只有归属说明（质量+滤波 A／分窗+特征 B），`decoding/` 为空占位 |
+| 处理与解码 | 🟡 离线可跑 | A 的质量/因果滤波 + B 的分窗/特征/LDA/决策已实现；`app.py`/`runtime` 未接线，应用还不能运行 |
 | 界面 | ⬜ 未开始 | `ui/` 为空占位 |
-| 存档与评估 | ⬜ 未开始 | `outputs/`、`evaluation/` 为空占位 |
+| 存档与评估 | 🟡 部分完成 | `training/evaluate.py` 窗口级指标已实现；`evaluation/`、`outputs/` 仍为空占位 |
 | 打包与发布 | ⬜ 未开始 | `packaging/` 为空占位 |
 | 工程配置 | 🟡 基本可用 | `pyproject.toml` 与 `requirements.txt` 已填（pytest 已设 `pythonpath=src`）；CI 待补 |
 
-> 应用入口 `app.py` 与 `runtime/`、`decoding/`、`ui/` 仍是空占位，启动命令会失败；测试可直接运行
-> `python tests\integration\test_replay.py`（或装了 pytest 后 `python -m pytest`）。
+> `app.py`、`runtime/`、`ui/`、`outputs/` 仍是空占位，启动命令会失败；`decoding/` 与 `training/`
+> 已能离线训练/评估，但还没接进应用。测试可直接运行 `python -m pytest`（当前 81 条）。
 
 ## 3. 功能范围（P0）
 
@@ -114,6 +114,11 @@ P0 共 11 项功能，全部完成后才进入验收；P1（网络流、LSL、�
   - `outputs/`：存档、导出、ResultSink（D）
   - `app.py` / `__main__.py`：依赖组装与入口（A）
 - **离线部分**：`training/`（B）、`evaluation/`（D）、`packaging/`（D）。
+
+依赖方向只有向下：`eeg_app → eeg_core`、`training → eeg_core`；**`eeg_core` 不 import
+`eeg_app`/`training`**。`training/pipeline.py` 是纯管线，只吃 `RecordingLike`；`training/train.py` /
+`evaluate.py` 只在 `main()` 里加载 EDF。完整依赖矩阵、代码放置表和反模式见
+[docs/00_架构总览.md](docs/00_架构总览.md)，并由 `tests/unit/core/test_layering.py` 自动检查。
 
 ### 4.2 数据流
 
@@ -173,7 +178,7 @@ bci-motor-imagery/
 │       ├── runtime/              # 会话、环形缓冲、后台队列
 │       ├── sources/              # EDF 读取与回放
 │       └── outputs/              # 存档、导出、ResultSink
-├── training/                     # 训练入口、数据登记、checkpoints/
+├── training/                     # 训练入口、数据登记、models/
 ├── evaluation/                   # 指标唯一实现、事件、报告
 ├── tests/                        # unit/core、unit/runtime、unit/evaluation、integration
 ├── examples/                     # 合成 EEG 与极小回放样本

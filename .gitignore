@@ -15,11 +15,14 @@ data/**/*.edf
 *.fif.gz
 *.bdf
 *.set
+data/mock/
 
 # ---- 模型与运行产物：可重新生成，不入库 ----
-training/checkpoints/*.pkl
-training/checkpoints/*.joblib
-training/checkpoints/*.onnx
+training/models/*.pkl
+training/models/*.joblib
+training/models/*.onnx
+training/models/*.npz
+training/models/*.model.json
 sessions/
 runs/
 a_input_replay_test/
