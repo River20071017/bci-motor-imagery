@@ -12,6 +12,12 @@
 不经过这里，也不进解码（PRD §5.3 / docs/01）。
 """
 
+from .bnci2014 import (
+    BNCI2014_SOURCE_ID,
+    SEALED_SESSIONS,
+    load_bnci2014_session,
+    parse_bnci2014_mat,
+)
 from .input import (
     SEALED_RUNS,
     SOURCE_ID,
@@ -29,17 +35,21 @@ from .input import (
 from .replay import ReplaySource, SourceState, chunk_samples_for, open_replay
 
 __all__ = [
+    "BNCI2014_SOURCE_ID",
     "SEALED_RUNS",
+    "SEALED_SESSIONS",
     "SOURCE_ID",
     "Recording",
     "ReplaySource",
     "SourceState",
     "apply_channel_aliases",
     "chunk_samples_for",
+    "load_bnci2014_session",
     "load_edf",
     "load_file",
     "load_recording",
     "open_replay",
+    "parse_bnci2014_mat",
     "read_raw",
     "recording_from_raw",
     "recording_id_of",

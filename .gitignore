@@ -15,7 +15,10 @@ data/**/*.edf
 *.fif.gz
 *.bdf
 *.set
+*.gdf
 data/mock/
+data/bnci2014/*.mat
+data/bnci2014/*.part
 
 # ---- 模型与运行产物：可重新生成，不入库 ----
 training/models/*.pkl

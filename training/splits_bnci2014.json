@@ -1,0 +1,29 @@
+{
+  "dataset": "bnci2014-001",
+  "version": "1.0.0",
+  "created_at": "2026-11-05T00:00:00Z",
+  "protocol": {
+    "train_session": "T",
+    "test_session": "E",
+    "validation": "run_cv",
+    "n_folds": 6,
+    "runs_per_session": 6,
+    "trials_per_run": 48,
+    "classes": ["idle", "left_hand", "right_hand"],
+    "excluded_classes": ["feet", "tongue"],
+    "window": {"seconds": 2.0, "step_seconds": 0.25},
+    "sample_rate_hz": 250.0,
+    "note": "T: 6 折按 run 分组的交叉验证做开发；超参定完后用全部 T 重训；E 封存，只在冻结后跑一次。Idle 来自每个 trial 的注视期与 run 间休息（T0），想象段从提示后 1 s 起算（T1/T2），class 3/4 的想象段保留 T3/T4 标记但不映射。"
+  },
+  "subjects": {
+    "A01": {"train": "A01T.mat", "test": "A01E.mat"},
+    "A02": {"train": "A02T.mat", "test": "A02E.mat"},
+    "A03": {"train": "A03T.mat", "test": "A03E.mat"},
+    "A04": {"train": "A04T.mat", "test": "A04E.mat"},
+    "A05": {"train": "A05T.mat", "test": "A05E.mat"},
+    "A06": {"train": "A06T.mat", "test": "A06E.mat"},
+    "A07": {"train": "A07T.mat", "test": "A07E.mat"},
+    "A08": {"train": "A08T.mat", "test": "A08E.mat"},
+    "A09": {"train": "A09T.mat", "test": "A09E.mat"}
+  }
+}
