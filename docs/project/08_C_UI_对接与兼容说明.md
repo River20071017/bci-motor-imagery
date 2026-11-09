@@ -173,6 +173,16 @@ C 的界面**只读**这个字典并显示，不构造 sink、不 `submit()`、�
    window.attach_result_sink(sink)     # 主线程；跨线程请用 Qt 队列信号投递
    ```
    或直接在组装时作为构造参数传入：`MainWindow(..., result_sink=sink, test_mode=False)`。
+   **注意**：D 的实现在"目录建不出来"时是**构造期抛 `ArchiveWriteError`**，不返回
+   `state="failed"` 的对象。此时请这样交给界面，界面才能走同一条失败路径：
+   ```python
+   try:
+       sink = JsonlResultSink(root, session_id, metadata)
+   except ArchiveWriteError as exc:
+       window.attach_result_sink(failed_sink(str(exc)))   # eeg_app.ui.save_status.failed_sink
+   else:
+       window.attach_result_sink(sink)
+   ```
 2. **喂数据**：每个 `DecisionFrame` 由 A（或 D 的适配层）调用 `sink.submit(frame)`；
    C 的界面不参与，也不知道队列长度。
 3. **收尾**：会话结束/停止时由 A 在工作线程调用 `sink.close(completed=..., reason=...)`，
@@ -184,6 +194,21 @@ C 的界面**只读**这个字典并显示，不构造 sink、不 `submit()`、�
    两者可同时使用（信号用于解耦观察，控制接口用于直接叫停），界面不会重复触发。
 5. **不要**让 sink 在 `writing` 之前就被 attach，也不要在 `close()` 之后再 `submit()`
    （D 的实现会让 `submit` 抛错并使 sink 永久 `failed`）。
+6. **`close()` 必须捕获异常**：`close()` 会 join 后台线程（默认最长等 10 s），
+   队列排空失败时抛 `ArchiveWriteError`；调用方捕获后应把结果告知界面/日志，
+   不要让它冒泡到 GUI 线程。
+
+### 8.2.1 已用真实 sink 验证（C 侧完成，读 D 的 `feat/D-session-archive` 实跑）
+
+| 场景 | 实测结果 | 界面文案 |
+| --- | --- | --- |
+| 构造成功 | `state=writing`，`directory` 已就绪 | 正在保存… |
+| 提交 20 帧 | `queued=20`，`state` 仍 `writing` | 正在保存…（不宣布完成） |
+| `close(completed=True)` | `state=closed`，`completed=true`，目录下 5 个文件 | 保存完成 + 目录 |
+| `close(completed=False)` | `state=closed`，`completed=false` | 保存未完成 |
+| 队列打满（`queue_size=2` 灌 500 帧） | `state=failed`，`error=ArchiveWriteError: 存档队列已满，必须暂停会话` | 保存失败：… |
+| 目录不可用（root 是文件） | **构造期抛** `ArchiveWriteError` | 需 A 用 `failed_sink()` 转交 |
+| `close()` 之后 `submit()` | 抛 `ArchiveWriteError: 会话已关闭或正在关闭` | 界面无感（A 必须先停供数） |
 
 ### 8.3 时序（A 的组装入口）
 
@@ -200,7 +225,8 @@ C 的界面**只读**这个字典并显示，不构造 sink、不 `submit()`、�
 
 - [ ] A 在 `eeg_app/app.py` 组装入口提供 sink 的构造、attach、close 三处调用。
 - [ ] A 提供 `SessionControl` 实现（或确认改用 `sink_failed` 信号）。
-- [ ] 真实 `JsonlResultSink` 的 `status` 字段名/取值与本文档一致（当前按 D 的 PR #11 实现编写）。
+- [x] ~~真实 `JsonlResultSink` 的 `status` 字段名/取值与本文档一致~~（已用 D 分支实跑，见 §8.2.1）。
 - [ ] D 的 PR #11 合并到 main 后，把 `examples/mock_sink.py` 换成真实 sink 再跑一遍验收。
-- [ ] 真实会话目录权限/磁盘满场景验证（当前用模拟 `failed` 覆盖）。
+- [ ] 真实会话目录权限/磁盘满场景验证（当前用模拟 `failed` + 队列打满覆盖）。
+- [ ] 真实 `DecisionFrame` 流下的 `queued` 峰值观察（`flush_interval_sec=1.0` 时约 4~5 帧）。
 

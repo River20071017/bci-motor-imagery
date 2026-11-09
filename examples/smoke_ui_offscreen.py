@@ -41,7 +41,7 @@ import numpy as np
 from eeg_core.contracts import DecisionState, EEGChunk, SourceInfo
 from eeg_app.ui.main_window import MainWindow
 from eeg_app.ui.intake import check_source_contract
-from eeg_app.ui.save_status import format_sink_status
+from eeg_app.ui.save_status import failed_sink, format_sink_status
 from mock_source import MockEegSource, DEFAULT_CHANNELS
 from mock_decoder import MockDecoder
 from mock_sink import MockResultSink
@@ -214,6 +214,7 @@ def main() -> int:
     print(f"  测试模式标注      : {save_info.get('test_mode_label')!r}")
     print(f"  未完成显示        : {save_info.get('incomplete_text')!r}")
     print(f"  失败显示          : {save_info.get('failed_text')!r}")
+    print(f"  启动前失败显示    : {save_info.get('early_text')!r}")
     print(f"  失败前动作反馈    : {save_info.get('feedback_before_fail')}")
     print(f"  失败后动作反馈    : {save_info.get('feedback_after_fail')}")
     print(f"  失败后会话停止    : {'OK' if not save_info.get('running_after_fail') else 'FAIL'}")
@@ -346,6 +347,29 @@ def save_status_live_check(app: QApplication) -> tuple[list[str], dict]:
     win_c = _new_window(sink_c, control_c)
     win_c.sink_failed.connect(failed_reasons.append)
 
+    # D 的 JsonlResultSink 构造失败时直接抛异常，A 用 failed_sink() 交给界面
+    early_control = _RecordingControl()
+    early_reasons: list[str] = []
+    src_e = MockEegSource()
+    dec_e = MockDecoder(sample_rate_hz=src_e.info.sample_rate_hz)
+    win_e = MainWindow(
+        source=src_e, decoder=dec_e, project_dir=_ROOT,
+        result_sink=failed_sink("FileExistsError: 输出目录不可用"),
+        session_control=early_control, test_mode=True,
+    )
+    win_e.hide()
+    win_e.sink_failed.connect(early_reasons.append)
+
+    def step_early_failure() -> None:
+        info["early_text"] = win_e.save_status.text
+        info["early_calls"] = list(early_control.calls)
+        if "保存失败" not in info["early_text"] or "输出目录不可用" not in info["early_text"]:
+            problems.append(f"启动前存档失败未显示：{info['early_text']!r}")
+        if not early_reasons:
+            problems.append("启动前存档失败未发出 sink_failed 信号")
+        if win_e.stickman._feedback is not False:
+            problems.append("启动前存档失败时动作反馈未处于停止状态")
+
     def step_closing() -> None:
         # writing → closing
         sink_a.set_state("closing", directory=session_dir)
@@ -405,7 +429,7 @@ def save_status_live_check(app: QApplication) -> tuple[list[str], dict]:
         info["worker_after_fail"] = win_c.worker is not None
         if win_c.worker is not None:
             problems.append("存档失败后回放线程未回收")
-        for w in (win_a, win_b, win_c):
+        for w in (win_a, win_b, win_c, win_e):
             w.close()
         app.quit()
 
@@ -413,6 +437,7 @@ def save_status_live_check(app: QApplication) -> tuple[list[str], dict]:
     QTimer.singleShot(650, step_closed_completed)
     QTimer.singleShot(800, step_closed_incomplete)
     QTimer.singleShot(1100, step_failed)
+    QTimer.singleShot(1200, step_early_failure)
     QTimer.singleShot(1400, finish)
     app.exec()
     return problems, info

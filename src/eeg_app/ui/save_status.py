@@ -54,6 +54,49 @@ class SessionControl(Protocol):
         ...
 
 
+class StaticSink:
+    """状态恒定的 sink，只用于把"启动前就失败"的情况交给界面显示。
+
+    D 的 ``JsonlResultSink`` 在**构造阶段**创建目录失败时会直接抛
+    ``ArchiveWriteError``（而不是返回一个 ``state="failed"`` 的对象），
+    此时 A 还没有 sink 可注入。用本类包一层，界面就能走同一条失败路径
+    （显示原因 → 停动作反馈 → 通知 A），避免"启动前失败"在界面上无迹可寻。
+
+    用法（A 侧）::
+
+        try:
+            sink = JsonlResultSink(root, session_id, metadata)
+        except ArchiveWriteError as exc:
+            window.attach_result_sink(failed_sink(str(exc)))
+        else:
+            window.attach_result_sink(sink)
+    """
+
+    def __init__(
+        self,
+        *,
+        state: str = "failed",
+        error: str | None = None,
+        directory: str | None = None,
+    ) -> None:
+        self._status: dict[str, object] = {
+            "state": state,
+            "directory": directory,
+            "error": error,
+            "queued": 0,
+            "completed": False,
+        }
+
+    @property
+    def status(self) -> dict[str, object]:
+        return dict(self._status)
+
+
+def failed_sink(reason: str) -> StaticSink:
+    """构造一个"已失败"的 sink（A 在存档初始化失败时注入）。"""
+    return StaticSink(state="failed", error=reason or "存档初始化失败")
+
+
 @dataclass(frozen=True)
 class SaveStatus:
     """一次状态映射的结果（纯数据，便于单测）。"""

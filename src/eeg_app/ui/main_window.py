@@ -114,7 +114,9 @@ class MainWindow(QMainWindow):
         self._sink_timer.setInterval(SINK_POLL_MS)
         self._sink_timer.timeout.connect(self._poll_sink_status)
         self._sink_timer.start()
-        self._poll_sink_status()
+        # 首次轮询放到事件循环第一拍：调用方构造完窗口后才能连上 sink_failed 信号，
+        # 否则"注入就已失败"的情况会在构造期发信号而无人接收。
+        QTimer.singleShot(0, self._poll_sink_status)
 
         self._set_control_enabled(start=True, pause=False, resume=False, stop=False)
 
