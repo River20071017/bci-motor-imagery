@@ -10,6 +10,13 @@
 
 本窗口只渲染 ``DecisionFrame``（硬边界③：界面不改写结果，动画不得由参考标签触发）。
 数据源与解码器通过构造参数注入，因此"接入 A 的数据"与"匹配 B 的算法"对界面透明。
+
+存档状态（D 的 ``JsonlResultSink``）只**读**不写：
+- 本窗口不构造 sink、不调用 ``submit()`` / ``close()``、不写任何文件（构造与 close 会等 IO，
+  必须由 A 的组装入口在工作线程完成）；
+- 本窗口只按 ``status`` 轮询显示（默认 400 ms），``submit()`` 成功不代表保存完成；
+- 存档失败时立即停止动作反馈，并通过 ``sink_failed`` 信号 + 可选的 ``SessionControl``
+  通知 A，由 A 决定会话如何收尾。
 """
 from __future__ import annotations
 
@@ -17,7 +24,7 @@ import os
 import time
 import uuid
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -33,6 +40,16 @@ from eeg_app.ui.timeline import TimelineWidget
 from eeg_app.ui.stick_figure import StickmanWidget
 from eeg_app.ui.state_text import StatusPanel
 from eeg_app.ui.process import ProcessView
+from eeg_app.ui.save_status import (
+    ResultSinkLike,
+    SaveStatus,
+    SaveStatusWidget,
+    SessionControl,
+    format_sink_status,
+)
+
+# 存档状态轮询间隔：一次 status 读取只是字典拷贝，400 ms 足够且几乎无开销
+SINK_POLL_MS = 400
 
 # 默认显示的 8 个通道（PRD F06：FC3、FCz、FC4、C3、Cz、C4、CP3、CPz）
 DEFAULT_DISPLAY_CHANNELS = list(MODEL_CHANNELS[:8])
@@ -44,18 +61,43 @@ def _new_session_id(prefix: str = "ui-test") -> str:
 
 
 class MainWindow(QMainWindow):
+    # 存档状态变化（参数为 SaveStatus）；A 可连接此信号做旁路监控
+    save_status_changed = Signal(object)
+    # 存档进入 failed（参数为失败原因文本）；A 据此决定是否终止会话
+    sink_failed = Signal(str)
+
     def __init__(
         self,
         source: SourceProtocol,
         decoder: DecoderProtocol,
         project_dir: str = "",
+        *,
+        result_sink: ResultSinkLike | None = None,
+        session_control: SessionControl | None = None,
+        test_mode: bool = False,
     ) -> None:
+        """注入 UI 依赖。
+
+        :param result_sink: D 的 ``JsonlResultSink``（或任何提供 ``status`` 的对象）。
+            由 A 的工作线程构造完成后再交给界面；界面只在主线程读 ``status``。
+            可为 ``None``，此时显示"存档模块未接入"。
+        :param session_control: A 的会话控制接口；存档失败时界面调用 ``request_stop``。
+            可为 ``None``，此时只发 ``sink_failed`` 信号。
+        :param test_mode: 是否使用模拟存档（仅为界面测试，不代表真实链路已接通）。
+        """
         super().__init__()
         if source is None or decoder is None:
             raise ValueError("MainWindow 需要注入 source 与 decoder")
         self.source = source
         self.decoder = decoder
         self.project_dir = project_dir or os.getcwd()
+        self.result_sink: ResultSinkLike | None = result_sink
+        self.session_control: SessionControl | None = session_control
+        self.test_mode = bool(test_mode)
+        self.save_status: SaveStatus | None = None
+        self._sink_failure_handled = False
+        self._failure_box = None
+        self._finalize_override: str | None = None
         self.worker = None
         self._expiry = QTimer(self)
         self._expiry.setSingleShot(True)
@@ -66,6 +108,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("EEG 运动想象连续解码 · 界面测试框架 (C)")
         self.resize(1180, 760)
         self._build_ui()
+
+        # 存档状态轮询：只读 status，不做任何 IO / 文件写入
+        self._sink_timer = QTimer(self)
+        self._sink_timer.setInterval(SINK_POLL_MS)
+        self._sink_timer.timeout.connect(self._poll_sink_status)
+        self._sink_timer.start()
+        self._poll_sink_status()
+
         self._set_control_enabled(start=True, pause=False, resume=False, stop=False)
 
     # ---------------- UI ----------------
@@ -155,7 +205,11 @@ class MainWindow(QMainWindow):
         self.resume_btn = QPushButton("继续")
         self.stop_btn = QPushButton("停止")
         self.processed_label = QLabel("已处理: 0.0 s")
-        self.save_label = QLabel("保存状态: 存档模块待接入 (界面测试)")
+        self.save_status_widget = SaveStatusWidget(test_mode=self.test_mode)
+        self.save_status_widget.setToolTip(
+            "存档状态来自运行时的结果存档模块（D 的 JsonlResultSink.status）。\n"
+            "界面只负责显示：不构造 sink、不写文件、不改变预测结果。"
+        )
         self.open_dir_btn = QPushButton("打开结果目录")
         self.start_btn.clicked.connect(self._on_start)
         self.pause_btn.clicked.connect(self._on_pause)
@@ -168,7 +222,7 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.stop_btn)
         bottom.addWidget(self.processed_label)
         bottom.addStretch(1)
-        bottom.addWidget(self.save_label)
+        bottom.addWidget(self.save_status_widget)
         bottom.addWidget(self.open_dir_btn)
         # N08 演示开关：勾选后只断决策、不断数据，可现场观察 750ms 自动静止
         self.n08_demo_cb = QCheckBox("模拟决策中断（演示 N08）")
@@ -222,6 +276,7 @@ class MainWindow(QMainWindow):
         self.waveform.clear()
         self.timeline.reset()
         self.process_view.reset()
+        self._sink_failure_handled = False   # 新会话：允许再次报告存档失败
         session = _new_session_id("ui-test")
         self.worker = PlaybackWorker(source=self.source, decoder=self.decoder)
         self.worker.set_session(session)
@@ -266,6 +321,9 @@ class MainWindow(QMainWindow):
     def _finalize(self, message: str) -> None:
         if self.worker is None:
             return
+        if self._finalize_override:
+            message = self._finalize_override
+            self._finalize_override = None
         self.worker.quit()
         self.worker.wait()
         self.worker = None
@@ -290,8 +348,92 @@ class MainWindow(QMainWindow):
     def _on_result_expired(self) -> None:
         self.stickman.mark_stale()
 
+    # ---------------- 存档状态（只读展示） ----------------
+    def attach_result_sink(self, sink: ResultSinkLike | None) -> None:
+        """由 A 在会话开始时注入/替换 sink（主线程调用，可用队列信号投递）。
+
+        界面不构造 sink；只持有引用并在轮询时读取 ``status``。
+        传入新 sink 视为一个新会话的开始，会重置"失败已处理"标记。
+        """
+        self.result_sink = sink
+        self._sink_failure_handled = False
+        self._poll_sink_status()
+
+    def _poll_sink_status(self) -> None:
+        """定时轮询 sink.status 并刷新显示（GUI 主线程，无阻塞 IO）。"""
+        sink = self.result_sink
+        raw = None
+        if sink is not None:
+            try:
+                raw = sink.status
+            except Exception as exc:  # noqa: BLE001  读取状态本身失败也要显示出来
+                raw = {
+                    "state": "failed",
+                    "error": f"无法读取存档状态：{exc}",
+                    "directory": None,
+                    "queued": None,
+                    "completed": False,
+                }
+        status = format_sink_status(raw)
+        self._apply_save_status(status)
+
+    def _apply_save_status(self, status: SaveStatus) -> None:
+        self.save_status = status
+        self.save_status_widget.set_status(status)
+        self.save_status_changed.emit(status)
+        if status.state == "failed" and not self._sink_failure_handled:
+            self._handle_sink_failure(status)
+
+    def _handle_sink_failure(self, status: SaveStatus) -> None:
+        """存档失败：立即停动作反馈 → 停会话 → 通知 A（信号 + 可选控制接口）。
+
+        只做一次（``_sink_failure_handled`` 去重），避免轮询反复触发。
+        """
+        self._sink_failure_handled = True
+        reason = status.error or status.text
+
+        # 1) 动作反馈立刻停止（N07 语义：异常/停止后不得继续给出动作反馈）
+        self._expiry.stop()
+        self.stickman.mark_stale()
+        self.process_view.set_running(False)
+
+        # 2) 结束当前回放（界面侧先把数据停下，不等待 A 的收尾）
+        if self.worker is not None and self._running:
+            self._finalize_override = f"存档失败，会话已停止：{reason}"
+            self.worker.stop()
+        self.statusBar().showMessage(f"存档失败：{reason}（已停止动作反馈）")
+
+        # 3) 通知 A：信号（推荐，跨线程自动排队）+ 可选的控制接口
+        self.sink_failed.emit(str(reason))
+        if self.session_control is not None:
+            try:
+                self.session_control.request_stop(f"archive_failed: {reason}")
+            except Exception as exc:  # noqa: BLE001  控制接口异常不应卡住界面
+                print(f"[MainWindow] session_control.request_stop 调用失败: {exc!r}")
+
+        # 4) 非模态提示（不阻塞事件循环，避免覆盖后续状态刷新）
+        self._show_failure_dialog(reason)
+
+    def _show_failure_dialog(self, reason: str) -> None:
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Critical)
+        box.setWindowTitle("存档失败")
+        box.setText("结果存档失败，动作反馈已停止。")
+        box.setInformativeText(
+            f"原因：{reason}\n\n"
+            "已通过控制接口通知运行时收尾。界面不会自行补写文件，"
+            "请检查输出目录权限与磁盘空间。"
+        )
+        box.setStandardButtons(QMessageBox.Ok)
+        box.setModal(False)
+        self._failure_box = box     # 保持引用，避免非模态对话框被回收
+        box.open()
+
     def _on_open_dir(self) -> None:
-        QDesktopServices.openUrl(QUrl.fromLocalFile(self.out_edit.text()))
+        status = self.save_status
+        target = (status.directory if status and status.directory else None) \
+            or self.out_edit.text()
+        QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
     def _on_n08_demo_toggled(self, state: int) -> None:
         # N08 演示：暂停/恢复决策发布（数据仍继续流式供数）
@@ -303,6 +445,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("N08 演示：决策恢复发布")
 
     def closeEvent(self, event) -> None:
+        if getattr(self, "_sink_timer", None) is not None:
+            self._sink_timer.stop()   # 停止轮询；sink 的 close() 由 A 负责
         if self.worker and self._running:
             self.worker.stop()
             self.worker.quit()

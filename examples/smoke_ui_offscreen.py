@@ -11,6 +11,11 @@
 4. N08：开启"决策中断"后，数据继续、决策停止；超过 750 ms 无新决策，火柴人动作反馈自动静止。
 5. 关闭"决策中断"后，决策恢复发布。
 6. 停止后动作反馈关闭（N07）。
+7. 存档状态显示（D 的 JsonlResultSink.status 语义）：
+   - 状态映射（opening/writing/closing/closed±completed/failed）逐条校验；
+   - 保存完成时显示会话目录；
+   - 保存未完成（completed=false）显示"保存未完成"；
+   - 保存失败时显示原因、动作反馈立即停止、会话停止、并通知 A（signal + SessionControl）。
 
 退出码 0 表示通过，1 表示失败；失败时打印诊断信息。
 """
@@ -36,8 +41,10 @@ import numpy as np
 from eeg_core.contracts import DecisionState, EEGChunk, SourceInfo
 from eeg_app.ui.main_window import MainWindow
 from eeg_app.ui.intake import check_source_contract
+from eeg_app.ui.save_status import format_sink_status
 from mock_source import MockEegSource, DEFAULT_CHANNELS
 from mock_decoder import MockDecoder
+from mock_sink import MockResultSink
 
 
 def contract_coverage() -> list[str]:
@@ -196,10 +203,28 @@ def main() -> int:
         for p in intake_problems:
             print(f"  - {p}")
 
+    # ---- 存档状态验收（映射 + 生命周期）----
+    save_map_problems = save_status_mapping_check()
+    save_live_problems, save_info = save_status_live_check(app)
+
+    print("==== 存档状态验收 ====")
+    print(f"  closing 显示      : {save_info.get('closing_text')!r}")
+    print(f"  完成显示          : {save_info.get('completed_text')!r}")
+    print(f"  目录显示          : {save_info.get('dir_label')!r}")
+    print(f"  测试模式标注      : {save_info.get('test_mode_label')!r}")
+    print(f"  未完成显示        : {save_info.get('incomplete_text')!r}")
+    print(f"  失败显示          : {save_info.get('failed_text')!r}")
+    print(f"  失败前动作反馈    : {save_info.get('feedback_before_fail')}")
+    print(f"  失败后动作反馈    : {save_info.get('feedback_after_fail')}")
+    print(f"  失败后会话停止    : {'OK' if not save_info.get('running_after_fail') else 'FAIL'}")
+    print(f"  通知 A 的控制调用 : {save_info.get('control_calls')}")
+
     if cov_problems:
         problems.extend(cov_problems)
     if intake_problems:
         problems.extend(intake_problems)
+    problems.extend(save_map_problems)
+    problems.extend(save_live_problems)
     if problems:
         print("\n!! 失败项:")
         for p in problems:
@@ -246,8 +271,151 @@ def intake_check() -> list[str]:
     if bad.ok:
         problems.append("item 2 失效：类型/形状错误的源未被判为格式错误（报错框不会弹）")
     return problems
-    print("\n✅ 全部通过")
-    return 0
+
+
+# ---------------- 存档状态（D 的 JsonlResultSink.status 语义） ----------------
+class _RecordingControl:
+    """模拟 A 的会话控制接口，记录界面调用过哪些控制动作。"""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def request_pause(self, reason: str) -> None:
+        self.calls.append(("pause", reason))
+
+    def request_stop(self, reason: str) -> None:
+        self.calls.append(("stop", reason))
+
+
+def save_status_mapping_check() -> list[str]:
+    """同步校验：status 字典 → 界面文案的映射（纯函数，五条映射全覆盖）。"""
+    problems: list[str] = []
+    cases = [
+        (None, "存档模块未接入", "muted"),
+        ({"state": "opening"}, "正在准备保存目录", "info"),
+        ({"state": "writing"}, "正在保存", "info"),
+        ({"state": "closing"}, "正在写完剩余记录", "info"),
+        ({"state": "closed", "completed": True}, "保存完成", "ok"),
+        ({"state": "closed", "completed": False}, "保存未完成", "warn"),
+        ({"state": "failed", "error": "磁盘已满"}, "保存失败：磁盘已满", "error"),
+    ]
+    for raw, expect_text, expect_level in cases:
+        st = format_sink_status(raw)
+        if expect_text not in st.text:
+            problems.append(f"状态映射错误：{raw} → {st.text!r}，应包含 {expect_text!r}")
+        if st.level != expect_level:
+            problems.append(f"状态级别错误：{raw} → {st.level!r}，应为 {expect_level!r}")
+
+    # submit() 只表示入队，绝不能据此显示“保存完成”
+    sink = MockResultSink(state="writing")
+    sink.submit({"decision": "…"})
+    if "保存完成" in format_sink_status(sink.status).text:
+        problems.append("submit() 入队被误判为保存完成（应以 status.state 为准）")
+    return problems
+
+
+def save_status_live_check(app: QApplication) -> tuple[list[str], dict]:
+    """驱动真实窗口走完存档生命周期（第二个事件循环）。
+
+    覆盖：目录显示、正常保存完成、保存未完成、保存失败 + 失败后动作停止 + 通知 A。
+    使用 ``MockResultSink``（模拟存档），**不代表真实链路已接通**。
+    """
+    problems: list[str] = []
+    info: dict[str, object] = {}
+    session_dir = os.path.join(_ROOT, "results_ui_test", "session_demo-sink-check")
+
+    def _new_window(sink, control=None) -> MainWindow:
+        src = MockEegSource()
+        dec = MockDecoder(sample_rate_hz=src.info.sample_rate_hz)
+        w = MainWindow(
+            source=src, decoder=dec, project_dir=_ROOT,
+            result_sink=sink, session_control=control, test_mode=True,
+        )
+        w.hide()
+        w._on_start()
+        return w
+
+    sink_a = MockResultSink(state="writing")
+    sink_b = MockResultSink(state="writing")
+    sink_c = MockResultSink(state="writing")
+    control_c = _RecordingControl()
+    failed_reasons: list[str] = []
+
+    win_a = _new_window(sink_a)
+    win_b = _new_window(sink_b)
+    win_c = _new_window(sink_c, control_c)
+    win_c.sink_failed.connect(failed_reasons.append)
+
+    def step_closing() -> None:
+        # writing → closing
+        sink_a.set_state("closing", directory=session_dir)
+        win_a._poll_sink_status()
+        info["closing_text"] = win_a.save_status.text
+        if "正在写完剩余记录" not in info["closing_text"]:
+            problems.append(f"closing 显示错误：{info['closing_text']!r}")
+
+    def step_closed_completed() -> None:
+        # closing → closed(completed=True)：保存完成 + 会话目录
+        sink_a.set_state("closed", directory=session_dir, completed=True)
+        win_a._poll_sink_status()
+        info["completed_text"] = win_a.save_status.text
+        dir_label = win_a.save_status_widget._dir_label.text()
+        info["dir_label"] = dir_label
+        info["test_mode_label"] = win_a.save_status_widget._text_label.text()
+        if "保存完成" not in info["completed_text"]:
+            problems.append(f"保存完成显示错误：{info['completed_text']!r}")
+        if session_dir not in dir_label:
+            problems.append(f"保存完成后未显示会话目录：{dir_label!r}")
+        if "界面测试" not in str(info["test_mode_label"]):
+            problems.append("模拟存档未在界面上标注“界面测试·模拟”，有冒充真实链路的风险")
+        win_a._on_stop()
+
+    def step_closed_incomplete() -> None:
+        # closed(completed=False)：保存未完成
+        sink_b.set_state("closed", directory=session_dir, completed=False)
+        win_b._poll_sink_status()
+        info["incomplete_text"] = win_b.save_status.text
+        if "保存未完成" not in info["incomplete_text"]:
+            problems.append(f"保存未完成显示错误：{info['incomplete_text']!r}")
+        win_b._on_stop()
+
+    def step_failed() -> None:
+        # 失败前：动作反馈应处于激活状态（证明“失败后停止”确实生效）
+        info["feedback_before_fail"] = win_c.stickman._feedback
+        if not win_c.stickman._feedback:
+            problems.append("失败前动作反馈未激活，无法验证失败后是否停止")
+        sink_c.set_state("failed", error="磁盘已满", directory=session_dir)
+        win_c._poll_sink_status()
+        info["failed_text"] = win_c.save_status.text
+        info["feedback_after_fail"] = win_c.stickman._feedback
+        info["control_calls"] = list(control_c.calls)
+        if "保存失败" not in info["failed_text"] or "磁盘已满" not in info["failed_text"]:
+            problems.append(f"保存失败提示错误：{info['failed_text']!r}")
+        if win_c.stickman._feedback is not False:
+            problems.append("存档失败后动作反馈未立即停止")
+        if not failed_reasons:
+            problems.append("存档失败未发出 sink_failed 信号（A 无法感知）")
+        if not any(kind == "stop" for kind, _ in control_c.calls):
+            problems.append("存档失败未调用 SessionControl.request_stop")
+
+    def finish() -> None:
+        info["running_after_fail"] = win_c._running
+        if win_c._running:
+            problems.append("存档失败后会话未停止（_running 仍为 True）")
+        info["worker_after_fail"] = win_c.worker is not None
+        if win_c.worker is not None:
+            problems.append("存档失败后回放线程未回收")
+        for w in (win_a, win_b, win_c):
+            w.close()
+        app.quit()
+
+    QTimer.singleShot(500, step_closing)
+    QTimer.singleShot(650, step_closed_completed)
+    QTimer.singleShot(800, step_closed_incomplete)
+    QTimer.singleShot(1100, step_failed)
+    QTimer.singleShot(1400, finish)
+    app.exec()
+    return problems, info
 
 
 if __name__ == "__main__":

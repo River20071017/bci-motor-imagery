@@ -112,7 +112,8 @@ if checker is not None:
    ```bash
    python examples/smoke_ui_offscreen.py     # 期望末尾 “✅ 全部通过”，EXIT=0
    ```
-   覆盖：6 种决策状态的契约校验、N07、N08、item2 接入校验（正常源通过 / 坏源判错）。
+   覆盖：6 种决策状态的契约校验、N07、N08、item2 接入校验（正常源通过 / 坏源判错）、
+   存档状态五条映射 + 目录显示 + 失败后动作停止 + 通知 A（见 §8）。
 2. **冻结契约导入校验**（已验证通过）：
    把 `origin/feature/protocol` 的 `src/eeg_core/contracts` 抽到临时目录并**置于 `sys.path` 最前**，
    再导入 C 的全部 UI 模块并跑一轮解码。期望：`FROZEN_IMPORT_OK`，且能产出合法 `DecisionFrame`。
@@ -130,12 +131,76 @@ if checker is not None:
 
 ## 7. 分支与上传
 
-- 代码分支：`feat/C-ui`（4 个提交）。
-- 交接分支：`feat/C-ui-integration`（= 代码 + 本说明），可直接上传/开 PR：
+- 存档状态接入分支：`feat/C-ui-save-status`（基于 `origin/main`）。
+- 早期交接分支：`feat/C-ui-integration`（= 代码 + 本说明）。
   ```bash
-  git push -u origin feat/C-ui-integration
+  git push -u origin feat/C-ui-save-status
   ```
-- 提醒：当前提交作者为仓库默认身份 `River20071017`，上传前可改成本人：
+- 提醒：提交作者用本人身份（仓库内已设 `Wsz917 <Sizheng0917@163.com>`）；若沿用默认身份，上传前可改：
   ```bash
   git commit --amend --author="王斯正 <你的邮箱>"
   ```
+
+## 8. 存档状态接入（D 的 `JsonlResultSink`）与 A 的交接
+
+D 的存档模块（PR #11 / 分支 `feat/D-session-archive`，尚未合并 main）提供
+`JsonlResultSink.status`，字段为 `state / directory / error / queued / completed`。
+C 的界面**只读**这个字典并显示，不构造 sink、不 `submit()`、不 `close()`、不写文件。
+
+### 8.1 状态 → 界面文案（`src/eeg_app/ui/save_status.py`）
+
+| `status.state` | 条件 | 界面显示 | 颜色 |
+| --- | --- | --- | --- |
+| `opening` | — | 正在准备保存目录… | 蓝 |
+| `writing` | — | 正在保存… | 蓝 |
+| `closing` | — | 正在写完剩余记录… | 蓝 |
+| `closed` | `completed=true` | 保存完成 + 会话目录 | 绿 |
+| `closed` | `completed=false` | 保存未完成 | 橙 |
+| `failed` | — | 保存失败：`<error>` | 红 |
+| —（无 sink） | — | 存档模块未接入 | 灰 |
+
+- 轮询周期 400 ms（`SINK_POLL_MS`），只做一次字典拷贝；**`submit()` 成功 ≠ 保存完成**。
+- 后台写入可能稍后失败，所以界面持续轮询，而不是在 `submit()` 返回时宣布成功。
+- 存档失败时界面立即：停止动作反馈（`mark_stale`）→ 停止本会话回放 → 发 `sink_failed` 信号
+  → 调 `SessionControl.request_stop(...)` → 弹**非模态**提示框。界面不自行补写文件。
+- 界面测试模式下状态条前缀为「存档（界面测试·模拟）」，避免把模拟存档当真。
+
+### 8.2 A 必须提供的接口（C 侧已完成，等 A 接上）
+
+1. **注入 sink**：会话开始时在工作线程构造 `JsonlResultSink(root, session_id, metadata)`
+   （构造会等目录初始化，**不能放 GUI 主线程**），构造成功后回到主线程调用
+   ```python
+   window.attach_result_sink(sink)     # 主线程；跨线程请用 Qt 队列信号投递
+   ```
+   或直接在组装时作为构造参数传入：`MainWindow(..., result_sink=sink, test_mode=False)`。
+2. **喂数据**：每个 `DecisionFrame` 由 A（或 D 的适配层）调用 `sink.submit(frame)`；
+   C 的界面不参与，也不知道队列长度。
+3. **收尾**：会话结束/停止时由 A 在工作线程调用 `sink.close(completed=..., reason=...)`，
+   不要由界面调用；`close()` 返回后 `status` 变 `closed`，界面自动显示「保存完成 / 保存未完成」。
+4. **控制接口**（存档失败时界面用）：实现其一即可
+   - `SessionControl`：`request_pause(reason)` / `request_stop(reason)`，通过
+     `MainWindow(..., session_control=ctrl)` 注入；
+   - 或连接信号 `MainWindow.sink_failed(str)`，在 A 的运行时里做收尾。
+   两者可同时使用（信号用于解耦观察，控制接口用于直接叫停），界面不会重复触发。
+5. **不要**让 sink 在 `writing` 之前就被 attach，也不要在 `close()` 之后再 `submit()`
+   （D 的实现会让 `submit` 抛错并使 sink 永久 `failed`）。
+
+### 8.3 时序（A 的组装入口）
+
+```
+工作线程: new JsonlResultSink(...)      → status: opening → writing
+        → 回主线程 attach_result_sink(sink) → 界面显示「正在保存…」
+主循环  : 每帧 sink.submit(df)           → 界面轮询 queued（仅展示，不判定完成）
+收尾    : 工作线程 sink.close(completed=True, reason="finished")
+        → status: closing → closed      → 界面显示「正在写完剩余记录…」→「保存完成」+ 目录
+异常    : status: failed(error=...)      → 界面显示「保存失败：…」+ 停动作 + 通知 A
+```
+
+### 8.4 待联调项（C 无法独立完成）
+
+- [ ] A 在 `eeg_app/app.py` 组装入口提供 sink 的构造、attach、close 三处调用。
+- [ ] A 提供 `SessionControl` 实现（或确认改用 `sink_failed` 信号）。
+- [ ] 真实 `JsonlResultSink` 的 `status` 字段名/取值与本文档一致（当前按 D 的 PR #11 实现编写）。
+- [ ] D 的 PR #11 合并到 main 后，把 `examples/mock_sink.py` 换成真实 sink 再跑一遍验收。
+- [ ] 真实会话目录权限/磁盘满场景验证（当前用模拟 `failed` 覆盖）。
+
