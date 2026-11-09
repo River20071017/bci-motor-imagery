@@ -95,7 +95,7 @@
     <div>
       <p class="eyebrow">Mind map · bci-motor-imagery @ d10ce05</p>
       <h1>模块分工思维导图</h1>
-      <p class="sub">把 <b>85 个文件</b>收敛成 <b>16 个模块</b>、<b>4 条主线</b>，再落到 <b>4 个人</b>。
+      <p class="sub">把 <b>85 个文件</b>收敛成 <b>17 个模块</b>、<b>4 条主线</b>，再落到 <b>4 个人</b>。
         颜色＝主责人，卡片第二行＝目录与代表文件；点击下方成员卡，可高亮他接触的模块。</p>
     </div>
     <div class="legend">
@@ -108,7 +108,7 @@
 
   <section class="card">
     <h2>1　文件树思维导图</h2>
-    <p class="hint">根节点 → 四条主线 → 16 个模块；模块卡片标出主责人与代表文件，完整文件列表见悬停提示。</p>
+    <p class="hint">根节点 → 四条主线 → 17 个模块；模块卡片标出主责人与代表文件，完整文件列表见悬停提示。</p>
     <div class="mapwrap" id="map"></div>
   </section>
 
@@ -150,9 +150,12 @@ const BANDS = [
     {name:'运行时', path:'src/eeg_app/runtime/', owner:'A',
       people:{A:'o',C:'e',D:'d'},
       files:['session.py','buffers.py','queue_worker.py','__init__.py']},
-    {name:'处理', path:'src/eeg_core/processing/', owner:'B',
+    {name:'预处理（质量/滤波）', path:'src/eeg_core/processing/', owner:'A',
+      people:{A:'o',B:'e',C:'d',D:'r'},
+      files:['filters.py','quality.py','__init__.py']},
+    {name:'特征（分窗/频带）', path:'src/eeg_core/processing/', owner:'B',
       people:{A:'e',B:'o',C:'d',D:'r'},
-      files:['windows.py','filters.py','quality.py','features.py','__init__.py']},
+      files:['windows.py','features.py']},
     {name:'解码', path:'src/eeg_core/decoding/', owner:'B',
       people:{A:'e',B:'o',C:'d',D:'r'},
       files:['decision.py','inference.py','models.py','__init__.py']},
@@ -166,7 +169,7 @@ const BANDS = [
   {name:'离线与验证', note:'训练与评估', modules:[
     {name:'训练', path:'training/', owner:'B',
       people:{A:'d',B:'o',D:'e'},
-      files:['train.py','dataset.py','evaluate.py','checkpoints/','__init__.py']},
+      files:['train.py','pipeline.py','mock.py','evaluate.py','models/','__init__.py']},
     {name:'评估', path:'evaluation/', owner:'D',
       people:{A:'r',B:'e',D:'o'},
       files:['events.py','metrics.py','report.py','__init__.py']},
