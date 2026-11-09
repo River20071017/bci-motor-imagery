@@ -26,6 +26,7 @@ training/models/*.model.json
 sessions/
 runs/
 a_input_replay_test/
+results_ui_test/
 *.log
 
 # ---- 参考材料（A 的首周交接包，仅本地参考）----

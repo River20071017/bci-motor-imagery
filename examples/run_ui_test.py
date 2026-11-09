@@ -3,6 +3,7 @@
 运行方式（在仓库根目录，使用已安装 PySide6 的虚拟环境）：
 
     python examples/run_ui_test.py
+    python examples/run_ui_test.py --simulate-failure   # 2 秒后模拟存档失败，看提示与动作停止
 
 本脚本把 ``src`` 加入 ``sys.path``，然后构造 C 的主窗口，并注入界面测试用的
 模拟数据源、模拟解码器与**模拟结果存档**（均在 ``examples/`` 下）。接入 A 的真实
@@ -43,11 +44,15 @@ DEMO_SESSION_DIR = os.path.join(_ROOT, "results_ui_test", "session_demo-ui-test"
 
 
 def main() -> int:
+    simulate_failure = "--simulate-failure" in sys.argv
     app = QApplication(sys.argv)
     app.setApplicationName("EEG MI 连续解码 · 界面测试 (C)")
 
     source = MockEegSource()
     decoder = MockDecoder(sample_rate_hz=source.info.sample_rate_hz)
+    # 测试用的"会话目录"：真实目录由 D 的 SessionArchive 创建，这里只为让
+    # "打开结果目录"按钮可点（不写任何结果文件）。
+    os.makedirs(DEMO_SESSION_DIR, exist_ok=True)
     sink = MockResultSink(state="writing", directory=DEMO_SESSION_DIR)
 
     window = MainWindow(
@@ -70,6 +75,17 @@ def main() -> int:
         )
 
     window.stop_btn.clicked.connect(_simulate_close)
+
+    if simulate_failure:
+        # 走查"保存失败 → 原因提示 → 动作反馈立即停止 → 通知 A"这条路径
+        QTimer.singleShot(
+            2000,
+            lambda: sink.set_state(
+                "failed",
+                error="模拟：输出目录不可写（Permission denied）",
+                directory=DEMO_SESSION_DIR,
+            ),
+        )
 
     window.show()
     return app.exec()
