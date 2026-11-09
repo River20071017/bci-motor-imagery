@@ -33,8 +33,18 @@ for _p in (_SRC, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer
+try:
+    from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QTimer
+except ModuleNotFoundError as _exc:  # 最常见的跑错解释器：系统 python 没装 PySide6
+    raise SystemExit(
+        "⚠ 当前解释器里没有 PySide6：\n"
+        f"  {sys.executable}\n\n"
+        "本仓库的界面依赖装在 ./../.venv 虚拟环境里，请用它的 python 运行：\n"
+        "  cmd      : ..\\.venv\\Scripts\\python.exe examples\\smoke_ui_offscreen.py\n"
+        "  git bash : ../.venv/Scripts/python.exe examples/smoke_ui_offscreen.py\n\n"
+        f"原始错误：{_exc}"
+    )
 
 import numpy as np
 

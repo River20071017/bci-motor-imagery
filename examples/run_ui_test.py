@@ -31,8 +31,19 @@ for _p in (_SRC, _HERE):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
+try:
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+except ModuleNotFoundError as _exc:  # 最常见的跑错解释器：系统 python 没装 PySide6
+    raise SystemExit(
+        "⚠ 当前解释器里没有 PySide6：\n"
+        f"  {sys.executable}\n\n"
+        "本仓库的界面依赖装在 ./../.venv 虚拟环境里，请用它的 python 运行：\n"
+        "  cmd      : ..\\.venv\\Scripts\\python.exe examples\\run_ui_test.py\n"
+        "  git bash : ../.venv/Scripts/python.exe examples/run_ui_test.py\n"
+        "或先激活环境：..\\.venv\\Scripts\\activate.bat\n\n"
+        f"原始错误：{_exc}"
+    )
 
 from eeg_app.ui.main_window import MainWindow
 from mock_source import MockEegSource
